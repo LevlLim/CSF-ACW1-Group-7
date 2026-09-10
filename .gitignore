@@ -1,0 +1,13 @@
+# Python build, test, and local environment artefacts
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Never commit local key material or secrets
+.env
+*.pem
+*.key

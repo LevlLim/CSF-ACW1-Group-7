@@ -1,1 +1,80 @@
 # CSF-ACW1-Group-7
+
+## Person 5: Crypto & Payload Core
+
+This repository currently provides the shared, stateless Python library for
+the INF2005 steganography project. Image and audio modules can use it to create
+the FR3 verification record, sign it for FR4, optionally encrypt it before LSB
+embedding, derive a protected FR7 start location, and map failures to FR10
+verdicts.
+
+### Security design
+
+- `VerificationPayload` contains `media_id`, UTC timestamp, SHA-256 media hash,
+  256-bit random nonce, format version, and JSON-safe metadata.
+- Canonical UTF-8 JSON is signed with Ed25519. The signed envelope can be
+  verified only with its paired public key.
+- Optional AES-256-GCM encrypts an envelope when confidentiality is required;
+  it includes authenticated encryption rather than unauthenticated encryption.
+- Start location is HMAC-SHA-256(secret, media ID, cover type, capacity, payload
+  length), with a protocol-domain label. It is not stored in plaintext. Both
+  encoder and decoder need the same secret and context; provide this secret via
+  environment variable/KMS, never source code or a committed `.env` file.
+- The library keeps no state and creates no key files. It uses safe JSON only;
+  it never uses `pickle` or `eval`.
+
+Ed25519 and SHA-256/HMAC-SHA-256 are current standard cryptography, but this
+prototype is not post-quantum secure. See [EVALUATION.md](EVALUATION.md) and
+[DEBUG.md](DEBUG.md) for acceptance criteria, limitations, recovery, and safe
+logging rules.
+
+### Setup and verification
+
+Requires Python 3.11+.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+python -m unittest discover -s tests -v
+```
+
+Optional type check after installing `mypy`:
+
+```powershell
+python -m pip install mypy
+python -m mypy
+```
+
+### P1--P4 integration outline
+
+1. Hash the agreed **stable pre-embedding representation** (not an already
+   changed stego file), then call `build_payload` and `sign_payload`.
+2. If payload confidentiality is in scope, call `encrypt_bytes` on the signed
+   envelope. Use the resulting bytes as the embedding payload and include the
+   same media ID as AES-GCM associated data on decryption.
+3. Call `derive_start_location` using a secret from the application’s secure
+   configuration and the cover capacity in the embedding unit used by your
+   module. Capacity must accommodate the exact bytes to embed.
+4. On extraction, derive the same location, decrypt when enabled, then call
+   `parse_and_verify`. Only after a valid signature use `media_hash_matches`.
+   Catch the public errors or pass them to `verdict_for_error` for the FR10
+   result. Do not display an invalid payload as trusted metadata.
+
+The image/audio teams own framing (such as a magic value and byte length) and
+LSB conversion. They must agree on whether `capacity` means carrier samples,
+bits, or bytes, and use that convention identically on both sides.
+
+### Public imports
+
+```python
+from crypto_payload import (
+    build_payload, sign_payload, parse_and_verify, sha256_hex,
+    derive_start_location, encrypt_bytes, decrypt_bytes,
+    media_hash_matches, verdict_for_error,
+)
+```
+
+Private keys are only for local assignment demonstration. In a real system,
+private signing keys and start secrets must remain outside the repository; a
+public key may be distributed for verification.
