@@ -4,9 +4,28 @@
 
 This repository currently provides the shared, stateless Python library for
 the INF2005 steganography project. Image and audio modules can use it to create
-the FR3 verification record, sign it for FR4, optionally encrypt it before LSB
-embedding, derive a protected FR7 start location, and map failures to FR10
-verdicts.
+the verification record for **FR3: Payload generation**, sign it for **FR4:
+Digital signature**, optionally encrypt it before LSB embedding, derive a
+protected start location for **FR7: Variable start location**, and map failures
+to **FR10: Verdict generation** outcomes.
+
+### Assignment functional-requirement coverage
+
+| FR | Assignment requirement | Responsible role | This library's involvement |
+| --- | --- | --- | --- |
+| FR1 | Image input | Person 1 | Supplies signed payload bytes for image embedding. |
+| FR2 | Audio input | Person 3 | Supplies signed payload bytes for audio embedding. |
+| FR3 | Payload generation | Person 5 | **Implemented:** versioned media ID, timestamp, SHA-256 hash, nonce, and safe metadata. |
+| FR4 | Digital signature | Person 5 | **Implemented:** Ed25519 key generation, signing, and public-key verification. |
+| FR5 | Image steganographic embedding | Person 1 | P1 embeds output bytes with image LSB replacement. |
+| FR6 | Audio steganographic embedding | Person 3 | P3 embeds output bytes with audio LSB replacement. |
+| FR7 | Variable start location | Person 5 + P1/P3/P2/P4 | **Implemented:** HMAC-derived location; media modules apply it during embedding/extraction. |
+| FR8 | Extraction and decoding | Person 2 / Person 4 | P2/P4 extract bytes then call `parse_and_verify`. |
+| FR9 | Hash verification | Person 5 + Person 2/4 | **Implemented:** SHA-256 comparison helper; P2/P4 supply the agreed stable media bytes. |
+| FR10 | Verdict generation | Person 5 + Person 2/4 | **Implemented:** verdict mapper; P2/P4 display it in their workflow/GUI. |
+| FR11 | Positive and negative cases | Person 6, with P1--P5 support | This library provides unit-testable crypto failure conditions. |
+| FR12 | Evidence and reproducibility | Person 6, with team support | Setup and validation commands are documented below. |
+| FR13 | Innovation | Person 6 | HMAC-derived secret start location and optional AES-GCM are available as possible supporting design elements. |
 
 ### Security design
 
@@ -59,7 +78,8 @@ python -m mypy
 4. On extraction, derive the same location, decrypt when enabled, then call
    `parse_and_verify`. Only after a valid signature use `media_hash_matches`.
    Catch the public errors or pass them to `verdict_for_error` for the FR10
-   result. Do not display an invalid payload as trusted metadata.
+   result for **FR10: Verdict generation**. Do not display an invalid payload
+   as trusted metadata.
 
 The image/audio teams own framing (such as a magic value and byte length) and
 LSB conversion. They must agree on whether `capacity` means carrier samples,
