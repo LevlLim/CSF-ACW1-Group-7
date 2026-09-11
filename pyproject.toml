@@ -7,7 +7,7 @@ name = "csf-stego-crypto-payload"
 version = "0.1.0"
 description = "Stateless payload, signing, encryption, and start-location helpers for INF2005 ACW1."
 requires-python = ">=3.11"
-dependencies = ["cryptography>=42.0"]
+dependencies = ["cryptography>=42.0", "Pillow>=10.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

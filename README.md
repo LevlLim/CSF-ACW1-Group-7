@@ -85,6 +85,35 @@ The image/audio teams own framing (such as a magic value and byte length) and
 LSB conversion. They must agree on whether `capacity` means carrier samples,
 bits, or bytes, and use that convention identically on both sides.
 
+### Person 1: Image Encoder API
+
+The PNG image encoder is exposed through `image_encoder` and is GUI-framework
+independent:
+
+```python
+from image_encoder import (
+    check_capacity,
+    encode_image_file,
+    resolve_header_start_channel,
+    resolve_payload_start_channel,
+)
+```
+
+- `encode_image_file(...)` accepts a PNG cover image, output path, signed
+  payload bytes, `lsb_depth` from 1 to 8, `start_secret`, and `media_id`.
+- Embedding uses row-major RGB channel slots: pixel `(0, 0)` red, green, blue,
+  then pixel `(1, 0)`, and so on. Alpha is preserved and never used.
+- The embedded frame is `b"CSFIMG1"` + 4-byte big-endian payload length +
+  payload bytes.
+- The decoder first derives a fixed locator header position with
+  `media_id + ":header"` and reads `b"CSFHDR1"` + 4-byte framed length. It then
+  derives the payload position with the real framed length by calling
+  `resolve_payload_start_channel(...)`. Both locations use Person 5's
+  `derive_start_location(...)`, `cover_type="image"`, capacity measured in RGB
+  channel slots, and length measured in required RGB channel slots.
+- `ImageEncodeResult` returns non-secret GUI details: output path, LSB depth,
+  capacity, embedded size, and how many channel/pixel values changed.
+
 ### Public imports
 
 ```python
