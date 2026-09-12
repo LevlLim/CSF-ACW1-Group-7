@@ -127,3 +127,28 @@ from crypto_payload import (
 Private keys are only for local assignment demonstration. In a real system,
 private signing keys and start secrets must remain outside the repository; a
 public key may be distributed for verification.
+
+
+### Person 2: Image Decoder & Verification API
+
+The PNG image decoder is exposed through `image_decoder` and mirrors
+`image_encoder`'s wire format exactly, with no GUI dependency:
+
+```python
+from image_decoder import decode_image_file, ImageDecodeResult
+```
+
+- `decode_image_file(stego_path, *, lsb_depth, start_secret, media_id,
+  public_key_pem)` extracts, verifies, and returns an `ImageDecodeResult`
+  with a `verdict`, the parsed `payload` (if any), and the underlying
+  `error` (if any).
+- `lsb_depth`, `start_secret`, and `media_id` must be the exact values used
+  at encode time — these are agreed out-of-band between parties, not
+  recovered from the file itself.
+- Extraction locates the locator header and payload using the same
+  `resolve_header_start_channel` / `resolve_payload_start_channel` functions
+  Person 1 exposes, so start-location logic is never duplicated or guessed.
+- Covers **FR8** (extraction), **FR9** (hash recheck), and **FR10** (verdict
+  generation), verdict mapping itself is delegated entirely to Person 5's
+  `verdict_for_error`, so the two teams' failure semantics can never drift
+  apart.
