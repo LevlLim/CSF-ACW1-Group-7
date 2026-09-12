@@ -28,7 +28,13 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
     """Build a signed payload and embed it into a cover PNG."""
 
     def __init__(self, master: ctk.CTkBaseClass) -> None:
-        super().__init__(master, fg_color="transparent")
+        super().__init__(
+            master,
+            fg_color=theme.BACKGROUND_COLOR,
+            corner_radius=theme.CARD_CORNER_RADIUS,
+            border_width=1,
+            border_color=theme.CARD_BORDER_COLOR,
+        )
 
         self.private_key_pem: bytes | None = None
         self.public_key_pem: bytes | None = None
@@ -37,34 +43,40 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
 
         self.grid_columnconfigure(0, weight=1)
 
+        # Everything is placed inside `content`, not `self` directly, so it
+        # doesn't sit flush against the panel's own border.
+        content = ctk.CTkFrame(self, fg_color="transparent")
+        content.grid(row=0, column=0, sticky="nsew", padx=16, pady=16)
+        content.grid_columnconfigure(0, weight=1)
+
         row = 0
-        theme.panel_header(self, 1, "Embed & Protect", "Hide verification data inside a PNG image").grid(
+        theme.panel_header(content, 1, "Embed & Protect", "Hide verification data inside a PNG image").grid(
             row=row, column=0, sticky="w", pady=(0, 10)
         )
         row += 1
 
         labeled_file_picker(
-            self, row, "Cover Image", "Cover PNG", filetypes=[("PNG image", "*.png")], on_selected=self.on_cover_selected
+            content, row, "Cover Image", "Cover PNG", filetypes=[("PNG image", "*.png")], on_selected=self.on_cover_selected
         )
         row += 2
 
-        theme.subheading(self, "Payload & Settings").grid(row=row, column=0, sticky="w", pady=(0, 4))
+        theme.subheading(content, "Payload & Settings").grid(row=row, column=0, sticky="w", pady=(0, 4))
         row += 1
-        settings = ctk.CTkFrame(self, fg_color="transparent")
+        settings = ctk.CTkFrame(content, fg_color="transparent")
         settings.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         settings.grid_columnconfigure(1, weight=1)
         self.build_payload_settings(settings)
         row += 1
 
-        theme.subheading(self, "Capacity Check").grid(row=row, column=0, sticky="w", pady=(0, 4))
+        theme.subheading(content, "Capacity Check").grid(row=row, column=0, sticky="w", pady=(0, 4))
         row += 1
-        capacity_frame, capacity_values = theme.stat_row(self, ["Payload Size", "Available Capacity", "Status"])
+        capacity_frame, capacity_values = theme.stat_row(content, ["Payload Size", "Available Capacity", "Status"])
         capacity_frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         self.payload_size_value, self.capacity_value, self.status_value = capacity_values
         row += 1
 
         self.encode_button = ctk.CTkButton(
-            self,
+            content,
             text="Embed & Sign",
             command=self.on_encode,
             fg_color=theme.CTA_FILL_COLOR,
@@ -74,15 +86,15 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.encode_button.grid(row=row, column=0, sticky="ew", pady=(0, 6))
         row += 1
 
-        self.status_label = ctk.CTkLabel(self, text="", anchor="w", justify="left", wraplength=420)
+        self.status_label = ctk.CTkLabel(content, text="", anchor="w", justify="left", wraplength=420)
         self.status_label.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         row += 1
 
-        self.build_previews(self, row)
+        self.build_previews(content, row)
         row += 1
 
         self.embed_result_card, self.embed_result_values = theme.kv_rows(
-            self, "Embed Result", ["LSB depth", "Capacity", "Embedded", "Changed pixels"]
+            content, "Embed Result", ["LSB depth", "Capacity", "Embedded", "Changed pixels"]
         )
         self.embed_result_card.grid(row=row, column=0, sticky="ew")
 
@@ -173,7 +185,7 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
             media_id = self.media_id_entry.get().strip()
             note = self.message_box.get("1.0", "end").strip()
             depth = int(self.lsb_depth_selector.get())
-            envelope = image_workflow.build_signed_envelope(self.cover_path, media_id, note, self.private_key_pem)
+            envelope = image_workflow.build_signed_envelope(self.cover_path, media_id, note, self.private_key_pem, depth)
             status = image_workflow.check_image_capacity(self.cover_path, envelope, depth)
         except _EXPECTED_FAILURES as exc:
             self.payload_size_value.configure(text="–")
@@ -205,7 +217,7 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         depth = int(self.lsb_depth_selector.get())
 
         try:
-            envelope = image_workflow.build_signed_envelope(self.cover_path, media_id, note, self.private_key_pem)
+            envelope = image_workflow.build_signed_envelope(self.cover_path, media_id, note, self.private_key_pem, depth)
             status = image_workflow.check_image_capacity(self.cover_path, envelope, depth)
             if not status.fits:
                 self.set_status(

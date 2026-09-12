@@ -1,4 +1,4 @@
-"""Image workflow: wires crypto_payload + image_encoder together.
+"""Image workflow: wires crypto_payload + image_encoder/image_decoder together.
 
 No GUI toolkit here, so the GUI, a demo script, or tests can all call it the same way.
 """
@@ -12,6 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 from crypto_payload import build_payload, sign_payload
+from image_decoder import ImageDecodeResult, decode_image_file
 from image_encoder import (
     ImageEncodeResult,
     check_capacity,
@@ -20,6 +21,8 @@ from image_encoder import (
     header_length_bytes,
     image_capacity_bits,
 )
+
+_RGB_CHANNELS = 3
 
 
 class CapacityStatus:
@@ -40,12 +43,42 @@ def capacity_bits(width: int, height: int, lsb_depth: int) -> int:
     return image_capacity_bits(width, height, lsb_depth)
 
 
-def build_signed_envelope(cover_path: Path, media_id: str, note: str, private_key_pem: bytes) -> bytes:
-    """Hash the cover file, build the FR3 payload, and sign it (FR4)."""
-    media_hash = hashlib.sha256(cover_path.read_bytes()).digest()
+def build_signed_envelope(cover_path: Path, media_id: str, note: str, private_key_pem: bytes, lsb_depth: int) -> bytes:
+    """Hash the cover file, build the FR3 payload, and sign it (FR4).
+
+    The verifier only ever has the stego file, never the original cover, so
+    the hash must be reproducible from the stego file alone. It's computed
+    with the low `lsb_depth` bits masked out of every RGB channel — exactly
+    the bits embedding is allowed to touch — matching the convention
+    `image_decoder.decode_image_file` expects on the other side.
+    """
+    media_hash = _masked_cover_hash(cover_path, lsb_depth)
     metadata = {"note": note} if note else {}
     payload = build_payload(media_id, media_hash, metadata, datetime.now(UTC))
     return sign_payload(payload, private_key_pem)
+
+
+def _masked_cover_hash(cover_path: Path, lsb_depth: int) -> bytes:
+    """SHA-256 of the cover with the low `lsb_depth` bits masked out of every
+    RGB channel. Must match image_decoder's masking exactly, or a genuine,
+    untouched round trip would incorrectly come back as Tampered.
+    """
+    keep_mask = (0xFF << lsb_depth) & 0xFF
+    with Image.open(cover_path) as source:
+        image = source.convert("RGB")
+        width, height = image.size
+        pixels = image.load()
+        assert pixels is not None, "a just-opened, just-converted image always has pixel data"
+        buf = bytearray(width * height * _RGB_CHANNELS)
+        i = 0
+        for y in range(height):
+            for x in range(width):
+                pixel = pixels[x, y]
+                assert isinstance(pixel, tuple), "RGB-mode images always yield an (R, G, B) tuple per pixel"
+                for channel in range(_RGB_CHANNELS):
+                    buf[i] = pixel[channel] & keep_mask
+                    i += 1
+    return hashlib.sha256(bytes(buf)).digest()
 
 
 def check_image_capacity(cover_path: Path, envelope: bytes, lsb_depth: int) -> CapacityStatus:
@@ -73,9 +106,13 @@ def encode_image(
     )
 
 
-def decode_image_stub(*args: object, **kwargs: object) -> None:
-    """Image extraction isn't built yet — replace this call once it is.
-
-    Raises so the GUI shows a clear message instead of doing nothing.
-    """
-    raise NotImplementedError("Image extraction/verification is not implemented yet.")
+def decode_image(
+    stego_path: Path | str,
+    lsb_depth: int,
+    start_secret: bytes,
+    media_id: str,
+    public_key_pem: bytes,
+) -> ImageDecodeResult:
+    return decode_image_file(
+        stego_path, lsb_depth=lsb_depth, start_secret=start_secret, media_id=media_id, public_key_pem=public_key_pem
+    )

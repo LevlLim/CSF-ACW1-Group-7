@@ -7,16 +7,29 @@ name = "csf-stego-crypto-payload"
 version = "0.1.0"
 description = "Stateless payload, signing, encryption, and start-location helpers for INF2005 ACW1."
 requires-python = ">=3.11"
-dependencies = ["cryptography>=42.0", "Pillow>=10.0", "customtkinter>=5.2"]
+dependencies = ["cryptography>=42.0", "Pillow>=10.0", "customtkinter>=5.2", "numpy>=1.26"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.mypy]
-python_version = "3.11"
+# 3.12, not the project's 3.11 floor (requires-python above) — purely so
+# mypy can parse numpy's bundled stubs (reached transitively through PIL's
+# array-interop type aliases), which use 3.12+ stub syntax. Doesn't allow
+# our own code to rely on 3.12-only runtime features.
+python_version = "3.12"
 strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
 module = "customtkinter"
+ignore_missing_imports = true
+
+# numpy's bundled stubs use Python 3.12+ syntax mypy can't parse under our
+# python_version = "3.11" target. Nothing in src/ imports numpy directly —
+# mypy only reaches it via PIL's internal array-interop type aliases — so
+# skip following it entirely rather than trying to parse its stub.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
 ignore_missing_imports = true
