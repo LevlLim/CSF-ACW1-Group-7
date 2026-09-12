@@ -127,3 +127,30 @@ from crypto_payload import (
 Private keys are only for local assignment demonstration. In a real system,
 private signing keys and start secrets must remain outside the repository; a
 public key may be distributed for verification.
+
+### GUI
+
+The desktop app lives under `src/app` (entry point), `src/gui` (CustomTkinter
+presentation layer), and `src/workflows` (orchestration — the only layer that
+calls both `crypto_payload` and the per-cover-object encoders). Launch it
+after the `pip install -e .` step above:
+
+```powershell
+python -m app
+```
+
+A top nav bar (`gui/navigation.py`) switches between full-page views
+(`gui/pages/`) instead of a tabview: **Image** and **Audio**. Everything else
+(overview, test cases, innovation, documentation) stays as real files
+(`docs/`, `README.md`) rather than duplicated GUI pages.
+
+The **Image** page shows Embed and Extract & Verify side by side. Embed is
+fully wired end-to-end: pick a cover PNG, generate a session Ed25519 keypair,
+choose an LSB depth (1-8) and a start-location secret, then embed. It hashes
+the cover file, builds and signs the FR3/FR4 payload via `crypto_payload`,
+checks capacity live via `workflows.image_workflow`, and embeds it with
+`image_encoder`. Extract & Verify and the entire **Audio** page are marked
+Pending — see `workflows/image_workflow.py`'s `decode_image_stub` and
+`workflows/audio_workflow.py` for the integration points, and
+`workflows/verification.py` for the shared verdict logic (`Authentic` /
+`Tampered` / `Signature Invalid`) that a real extractor should call into.
