@@ -96,11 +96,16 @@ from image_encoder import (
     encode_image_file,
     resolve_header_start_channel,
     resolve_payload_start_channel,
+    stable_image_hash,
 )
 ```
 
 - `encode_image_file(...)` accepts a PNG cover image, output path, signed
   payload bytes, `lsb_depth` from 1 to 8, `start_secret`, and `media_id`.
+- `stable_image_hash(image_path, lsb_depth)` returns the raw 32-byte SHA-256
+  digest to pass into `build_payload(...)`. It hashes normalized RGB pixels
+  after zeroing the selected LSB bits, so the cover and stego image hashes
+  still match after embedding. Alpha is ignored.
 - Embedding uses row-major RGB channel slots: pixel `(0, 0)` red, green, blue,
   then pixel `(1, 0)`, and so on. Alpha is preserved and never used.
 - The embedded frame is `b"CSFIMG1"` + 4-byte big-endian payload length +

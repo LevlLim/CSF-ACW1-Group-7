@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
@@ -13,6 +14,7 @@ from crypto_payload import derive_start_location
 
 FRAME_MAGIC = b"CSFIMG1"
 HEADER_MAGIC = b"CSFHDR1"
+_HASH_DOMAIN = b"CSFIMGHASH1"
 _LENGTH_BYTES = 4
 _RGB_CHANNELS = 3
 
@@ -53,6 +55,39 @@ def check_capacity(width: int, height: int, payload: bytes, lsb_depth: int) -> b
     framed = frame_payload(payload)
     hidden_bytes = len(_locator_header(len(framed))) + len(framed)
     return hidden_bytes * 8 <= image_capacity_bits(width, height, lsb_depth)
+
+
+def stable_image_hash(image_path: str | Path, lsb_depth: int) -> bytes:
+    """Hash image pixels after zeroing the LSBs used for embedding.
+
+    The digest is stable between the original cover PNG and the encoded stego
+    PNG because payload bits are removed before hashing. RGB channels are
+    hashed; alpha is ignored.
+    """
+    _validate_lsb_depth(lsb_depth)
+    with Image.open(image_path) as source:
+        if source.format != "PNG":
+            raise ValueError("only PNG images are supported")
+        image = _editable_rgb_image(source)
+
+    keep_mask = 0xFF & ~((1 << lsb_depth) - 1)
+    digest = hashlib.sha256()
+    digest.update(_HASH_DOMAIN)
+    digest.update(image.width.to_bytes(4, "big"))
+    digest.update(image.height.to_bytes(4, "big"))
+    digest.update(bytes([lsb_depth]))
+
+    pixels = image.load()
+    for y in range(image.height):
+        for x in range(image.width):
+            red, green, blue = pixels[x, y][:3]
+            digest.update(bytes((red & keep_mask, green & keep_mask, blue & keep_mask)))
+    return digest.digest()
+
+
+def stable_image_hash_hex(image_path: str | Path, lsb_depth: int) -> str:
+    """Return ``stable_image_hash`` as lowercase hex for display/logs."""
+    return stable_image_hash(image_path, lsb_depth).hex()
 
 
 def header_length_bytes() -> int:
