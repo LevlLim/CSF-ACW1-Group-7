@@ -1,5 +1,7 @@
-"""Embed & Protect panel: hashes the cover, signs a payload, checks capacity,
-and embeds it into a PNG. This is the fully-working half of the Image page.
+"""Embed & Protect panel: hashes the cover WAV, signs a payload, checks
+capacity, and embeds it into the audio using LSB replacement. Mirrors
+embed_panel.py for images, including the message/note field and cover/stego
+playback for comparison.
 """
 
 from __future__ import annotations
@@ -9,23 +11,21 @@ from pathlib import Path
 from tkinter import filedialog
 
 import customtkinter as ctk
-from PIL import Image
 
+from audio_stego.common import AudioStegoError, load_wav_pcm
 from crypto_payload import CryptoPayloadError, generate_ed25519_keypair
-from workflows import image_workflow
+from workflows import audio_workflow
 
 from .. import theme
+from ..audio_playback import play_wav, stop_playback
 from ..components import labeled_file_picker
 
-_THUMBNAIL_SIZE = (140, 140)
-
-# DEBUG.md says callers should only catch these, not raw crypto exceptions,
-# so a real bug still shows up as a crash instead of a vague error message.
-_EXPECTED_FAILURES = (CryptoPayloadError, ValueError, OSError)
+_EXPECTED_FAILURES = (CryptoPayloadError, AudioStegoError, ValueError, OSError)
+_PLAYBACK_FAILURES = (AudioStegoError, OSError, RuntimeError)
 
 
-class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships without type stubs
-    """Build a signed payload and embed it into a cover PNG."""
+class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships without type stubs
+    """Build a signed payload and embed it into a cover WAV."""
 
     def __init__(self, master: ctk.CTkBaseClass) -> None:
         super().__init__(
@@ -50,15 +50,38 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         content.grid_columnconfigure(0, weight=1)
 
         row = 0
-        theme.panel_header(content, 1, "Image Encoder", "Hide verification data inside a PNG image").grid(
+        theme.panel_header(content, 1, "Audio Encoder", "Hide verification data inside a WAV file").grid(
             row=row, column=0, sticky="w", pady=(0, 10)
         )
         row += 1
 
         labeled_file_picker(
-            content, row, "Cover Image", "Cover PNG", filetypes=[("PNG image", "*.png")], on_selected=self.on_cover_selected
+            content, row, "Cover Audio", "Cover WAV", filetypes=[("WAV audio", "*.wav")], on_selected=self.on_cover_selected
         )
         row += 2
+
+        theme.subheading(content, "Cover Info").grid(row=row, column=0, sticky="w", pady=(0, 4))
+        row += 1
+        info_frame, info_values = theme.stat_row(content, ["Channels", "Sample Rate", "Duration"])
+        info_frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
+        self.channels_value, self.sample_rate_value, self.duration_value = info_values
+        row += 1
+
+        playback_row = ctk.CTkFrame(content, fg_color="transparent")
+        playback_row.grid(row=row, column=0, sticky="ew", pady=(0, 12))
+        playback_row.grid_columnconfigure((0, 1, 2), weight=1)
+        self.play_cover_button = ctk.CTkButton(
+            playback_row, text="Play Cover", state="disabled", command=self.on_play_cover
+        )
+        self.play_cover_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.play_stego_button = ctk.CTkButton(
+            playback_row, text="Play Stego", state="disabled", command=self.on_play_stego
+        )
+        self.play_stego_button.grid(row=0, column=1, sticky="ew", padx=4)
+        ctk.CTkButton(playback_row, text="Stop", command=self.on_stop_playback).grid(
+            row=0, column=2, sticky="ew", padx=(4, 0)
+        )
+        row += 1
 
         theme.subheading(content, "Payload & Settings").grid(row=row, column=0, sticky="w", pady=(0, 4))
         row += 1
@@ -90,11 +113,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.status_label.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         row += 1
 
-        self.build_previews(content, row)
-        row += 1
-
         self.embed_result_card, self.embed_result_values = theme.kv_rows(
-            content, "Embed Result", ["LSB depth", "Capacity", "Embedded", "Changed pixels"]
+            content, "Embed Result", ["LSB depth", "Capacity", "Payload bytes", "Carriers used", "Start location"]
         )
         self.embed_result_card.grid(row=row, column=0, sticky="ew")
 
@@ -135,30 +155,42 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.public_key_box.grid(row=6, column=0, columnspan=2, sticky="ew")
         self.public_key_box.configure(state="disabled")
 
-    def build_previews(self, master: ctk.CTkFrame, row: int) -> None:
-        previews = ctk.CTkFrame(master, fg_color="transparent")
-        previews.grid(row=row, column=0, sticky="ew", pady=(0, 12))
-        previews.grid_columnconfigure((0, 1), weight=1)
-
-        cover_col = ctk.CTkFrame(previews, fg_color="transparent")
-        cover_col.grid(row=0, column=0, sticky="n", padx=(0, 6))
-        ctk.CTkLabel(cover_col, text="Cover").pack(pady=(0, 4))
-        self.cover_preview = ctk.CTkLabel(cover_col, text="(no image)", width=_THUMBNAIL_SIZE[0], height=_THUMBNAIL_SIZE[1])
-        self.cover_preview.pack()
-
-        stego_col = ctk.CTkFrame(previews, fg_color="transparent")
-        stego_col.grid(row=0, column=1, sticky="n", padx=(6, 0))
-        ctk.CTkLabel(stego_col, text="Stego").pack(pady=(0, 4))
-        self.stego_preview = ctk.CTkLabel(stego_col, text="(not yet encoded)", width=_THUMBNAIL_SIZE[0], height=_THUMBNAIL_SIZE[1])
-        self.stego_preview.pack()
-
     def default_media_id(self) -> str:
-        return f"img-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+        return f"audio-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
 
     def on_cover_selected(self, path: Path) -> None:
         self.cover_path = path
-        self.show_preview(self.cover_preview, path)
+        try:
+            wav = load_wav_pcm(path)
+        except AudioStegoError as exc:
+            self.set_status(f"Could not read WAV: {exc}", error=True)
+            return
+        self.channels_value.configure(text=str(wav.channels))
+        self.sample_rate_value.configure(text=f"{wav.frame_rate} Hz")
+        duration = wav.frame_count / wav.frame_rate if wav.frame_rate else 0
+        self.duration_value.configure(text=f"{duration:.1f} s")
+        self.play_cover_button.configure(state="normal")
+        self.play_stego_button.configure(state="disabled")
         self.refresh_capacity()
+
+    def on_play_cover(self) -> None:
+        if self.cover_path is None:
+            return
+        try:
+            play_wav(self.cover_path)
+        except _PLAYBACK_FAILURES as exc:
+            self.set_status(f"Could not play cover audio: {exc}", error=True)
+
+    def on_play_stego(self) -> None:
+        if self.stego_path is None:
+            return
+        try:
+            play_wav(self.stego_path)
+        except _PLAYBACK_FAILURES as exc:
+            self.set_status(f"Could not play stego audio: {exc}", error=True)
+
+    def on_stop_playback(self) -> None:
+        stop_playback()
 
     def on_generate_keypair(self) -> None:
         self.private_key_pem, self.public_key_pem = generate_ed25519_keypair()
@@ -187,8 +219,7 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
             media_id = self.media_id_entry.get().strip()
             note = self.message_box.get("1.0", "end").strip()
             depth = int(self.lsb_depth_selector.get())
-            envelope = image_workflow.build_signed_envelope(self.cover_path, media_id, note, self.private_key_pem, depth)
-            status = image_workflow.check_image_capacity(self.cover_path, envelope, depth)
+            status = audio_workflow.check_audio_capacity(self.cover_path, media_id, self.private_key_pem, depth, note=note)
         except _EXPECTED_FAILURES as exc:
             self.payload_size_value.configure(text="–")
             self.capacity_value.configure(text="–")
@@ -196,8 +227,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
             self.set_status(f"Capacity check failed: {exc}", error=True)
             return
 
-        self.payload_size_value.configure(text=f"{status.needed_bits} bits")
-        self.capacity_value.configure(text=f"{status.capacity_bits} bits")
+        self.payload_size_value.configure(text=f"{status.needed_bytes} bytes")
+        self.capacity_value.configure(text=f"{status.capacity_bytes} bytes")
         if status.fits:
             self.status_value.configure(text="Fits", text_color=theme.SUCCESS_COLOR)
         else:
@@ -205,7 +236,7 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
 
     def on_encode(self) -> None:
         if self.cover_path is None:
-            self.set_status("Select a cover PNG first.", error=True)
+            self.set_status("Select a cover WAV first.", error=True)
             return
         if self.private_key_pem is None:
             self.set_status("Generate a signing keypair first.", error=True)
@@ -219,42 +250,36 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         depth = int(self.lsb_depth_selector.get())
 
         try:
-            envelope = image_workflow.build_signed_envelope(self.cover_path, media_id, note, self.private_key_pem, depth)
-            status = image_workflow.check_image_capacity(self.cover_path, envelope, depth)
+            status = audio_workflow.check_audio_capacity(self.cover_path, media_id, self.private_key_pem, depth, note=note)
             if not status.fits:
                 self.set_status(
-                    f"Payload does not fit: needs {status.needed_bits} bits, "
-                    f"image has {status.capacity_bits} bits at {depth}-bit LSB depth.",
+                    f"Payload does not fit: needs {status.needed_bytes} bytes, "
+                    f"audio has {status.capacity_bytes} bytes at {depth}-bit LSB depth.",
                     error=True,
                 )
                 return
 
             stego_path = filedialog.asksaveasfilename(
-                title="Save stego image as", defaultextension=".png", filetypes=[("PNG image", "*.png")]
+                title="Save stego audio as", defaultextension=".wav", filetypes=[("WAV audio", "*.wav")]
             )
             if not stego_path:
                 return
 
-            result = image_workflow.encode_image(self.cover_path, stego_path, envelope, depth, secret, media_id)
+            result = audio_workflow.encode_audio(
+                self.cover_path, stego_path, media_id, self.private_key_pem, secret, depth, note=note
+            )
         except _EXPECTED_FAILURES as exc:
             self.set_status(f"Encoding failed: {exc}", error=True)
             return
 
         self.stego_path = Path(stego_path)
-        self.show_preview(self.stego_preview, self.stego_path)
+        self.play_stego_button.configure(state="normal")
         self.embed_result_values["LSB depth"].configure(text=str(result.lsb_depth))
-        self.embed_result_values["Capacity"].configure(text=f"{result.capacity_bits} bits")
-        self.embed_result_values["Embedded"].configure(text=f"{result.embedded_bits} bits")
-        self.embed_result_values["Changed pixels"].configure(text=str(result.changed_pixels))
+        self.embed_result_values["Capacity"].configure(text=f"{result.capacity} samples")
+        self.embed_result_values["Payload bytes"].configure(text=str(result.payload_bytes))
+        self.embed_result_values["Carriers used"].configure(text=str(result.carriers_used))
+        self.embed_result_values["Start location"].configure(text=str(result.start_location))
         self.set_status(f"Encoded successfully: {self.stego_path.name}")
-
-    def show_preview(self, label: ctk.CTkLabel, path: Path) -> None:
-        with Image.open(path) as source:
-            thumb = source.copy()
-        thumb.thumbnail(_THUMBNAIL_SIZE)
-        photo = ctk.CTkImage(light_image=thumb, dark_image=thumb, size=thumb.size)
-        label.configure(image=photo, text="")
-        label.image = photo  # keep a reference alive; CTkLabel does not retain one
 
     def set_status(self, text: str, error: bool = False) -> None:
         self.status_label.configure(text=text, text_color=(theme.ERROR_COLOR if error else theme.NORMAL_TEXT_COLOR))

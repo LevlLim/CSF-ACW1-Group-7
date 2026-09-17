@@ -5,6 +5,8 @@ Layout only — each page owns its own content and logic.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import customtkinter as ctk
 
 from . import theme
@@ -14,6 +16,7 @@ from .pages.image_page import ImagePage
 
 APP_TITLE = "INF2005 Steganography Tool"
 _TAGLINE = "STEGANOGRAPHY · VERIFY · PROTECT"
+_THEME_FILE = Path(__file__).parent / "assets" / "console_theme.json"
 
 # (key, label) in display order. Test Cases / Innovation / Docs / Overview
 # stay as real files instead of GUI pages — nav is just the working parts.
@@ -26,37 +29,42 @@ class App(ctk.CTk):  # type: ignore[misc]  # customtkinter ships without type st
         self.title(f"{APP_TITLE} — {theme.TEAM_TAG}")
         self.geometry("1400x900")
         self.minsize(1100, 700)
-        ctk.set_appearance_mode("Dark")
-        ctk.set_default_color_theme("blue")
+        ctk.set_appearance_mode("Light")
+        ctk.set_default_color_theme(str(_THEME_FILE))
         self.configure(fg_color=theme.BACKGROUND_COLOR)
 
-        self.build_header()
-        self.build_navigation()
+        self.build_header_bar()
         self.build_content()
         self.build_status_bar()
 
         self.nav_bar.set_active("image")
 
-    def build_header(self) -> None:
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=20, pady=(16, 4))
-        header.grid_columnconfigure(1, weight=1)
+    def build_header_bar(self) -> None:
+        """Identity + nav tabs share one dark bar — the header stays dark
+        even though the rest of the app is light, per the team's design.
+        """
+        header_bar = ctk.CTkFrame(self, fg_color=theme.HEADER_BACKGROUND_COLOR, corner_radius=0)
+        header_bar.pack(fill="x")
 
-        ctk.CTkLabel(header, text=theme.TEAM_TAG, font=theme.heading_font(18), anchor="w").grid(
-            row=0, column=0, sticky="w"
-        )
+        identity = ctk.CTkFrame(header_bar, fg_color="transparent")
+        identity.pack(fill="x", padx=20, pady=(16, 4))
+        identity.grid_columnconfigure(1, weight=1)
+
         ctk.CTkLabel(
-            header, text=_TAGLINE, font=theme.mono_font(11, weight="bold"), text_color=("gray40", "gray60"), anchor="w"
+            identity, text=theme.TEAM_TAG, font=theme.heading_font(18), text_color=theme.HEADER_TEXT_COLOR, anchor="w"
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            identity,
+            text=_TAGLINE,
+            font=theme.mono_font(11, weight="bold"),
+            text_color=theme.HEADER_SUBTEXT_COLOR,
+            anchor="w",
         ).grid(row=0, column=1, sticky="w", padx=(16, 0))
 
-    def build_navigation(self) -> None:
-        nav_container = ctk.CTkFrame(self, fg_color="transparent")
-        nav_container.pack(fill="x", padx=20, pady=(0, 4))
+        nav_container = ctk.CTkFrame(header_bar, fg_color="transparent")
+        nav_container.pack(fill="x", padx=20, pady=(0, 12))
         self.nav_bar = NavigationBar(nav_container, _PAGES, on_select=self.show_page)
         self.nav_bar.pack(fill="x")
-
-        # Plain 1px divider — cheaper than another bordered frame.
-        ctk.CTkFrame(self, fg_color=theme.CARD_BORDER_COLOR, height=1, corner_radius=0).pack(fill="x", padx=20)
 
     def build_content(self) -> None:
         container = ctk.CTkFrame(self, fg_color="transparent")
@@ -76,15 +84,11 @@ class App(ctk.CTk):  # type: ignore[misc]  # customtkinter ships without type st
         status_bar.pack(fill="x", padx=20, pady=(0, 12))
         status_bar.grid_columnconfigure(0, weight=1)
 
-        self.ready_label = ctk.CTkLabel(
-            status_bar, text="Ready.", font=ctk.CTkFont(size=11), text_color=("gray40", "gray60"), anchor="w"
-        )
-        self.ready_label.grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(
             status_bar,
             text=f"INF2005 ACW1 2026  |  {theme.TEAM_TAG}",
             font=theme.mono_font(11),
-            text_color=("gray40", "gray60"),
+            text_color=theme._EYEBROW_COLOR,
         ).grid(row=0, column=1, sticky="e")
 
     def show_page(self, key: str) -> None:

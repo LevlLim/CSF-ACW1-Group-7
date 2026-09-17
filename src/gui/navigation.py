@@ -21,8 +21,8 @@ class NavigationBar(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships 
                 self,
                 text=label,
                 fg_color="transparent",
-                hover_color=theme.CARD_FILL_COLOR,
-                text_color=theme.NORMAL_TEXT_COLOR,
+                hover_color=theme.HEADER_HOVER_COLOR,
+                text_color=theme.HEADER_TEXT_COLOR,
                 corner_radius=6,
                 command=lambda key=key: self.select(key),
             )
@@ -35,5 +35,5 @@ class NavigationBar(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships 
 
     def select(self, key: str) -> None:
         for button_key, button in self.buttons.items():
-            button.configure(fg_color=theme.CARD_FILL_COLOR if button_key == key else "transparent")
+            button.configure(fg_color=theme.HEADER_ACTIVE_TAB_COLOR if button_key == key else "transparent")
         self.on_select(key)

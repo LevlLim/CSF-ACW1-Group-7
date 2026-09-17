@@ -1,4 +1,12 @@
-"""Extract & Verify panel: extracts a payload from a stego PNG and verifies it."""
+"""Extract & Verify panel for audio: UI shell ready for the audio decoder.
+
+Mirrors gui/panels/verify_panel.py for images. No audio decoder exists yet
+(see workflows/audio_workflow.py's decode_audio_stub) — the panel already
+collects and passes the same arguments image_decoder.decode_image_file
+expects (stego path, lsb depth, start secret, media id, public key), so
+swapping decode_audio_stub for the real call is the only change needed
+once Person 4 builds one.
+"""
 
 from __future__ import annotations
 
@@ -6,14 +14,16 @@ from pathlib import Path
 
 import customtkinter as ctk
 
-from crypto_payload import CryptoPayloadError, Verdict
-from image_decoder import ImageDecodeResult
-from workflows import image_workflow
+from crypto_payload import CryptoPayloadError
+from workflows import audio_workflow
 
 from .. import theme
+from ..audio_playback import play_wav, stop_playback
 from ..components import labeled_file_picker
+from audio_stego.common import AudioStegoError
 
 _EXPECTED_FAILURES = (CryptoPayloadError, ValueError, OSError)
+_PLAYBACK_FAILURES = (AudioStegoError, OSError, RuntimeError)
 
 
 def _normalize_public_key_pem(text: str) -> bytes:
@@ -29,8 +39,12 @@ def _normalize_public_key_pem(text: str) -> bytes:
     return f"-----BEGIN PUBLIC KEY-----\n{text}\n-----END PUBLIC KEY-----\n".encode("ascii")
 
 
-class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships without type stubs
-    """Extract a payload from a stego PNG and verify it against a public key."""
+class AudioVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships without type stubs
+    """Extract a payload from a stego WAV and verify it against a public key.
+
+    Pending — no audio decoder exists yet, so on_verify always reports
+    "not implemented" instead of a real verdict.
+    """
 
     def __init__(self, master: ctk.CTkBaseClass) -> None:
         super().__init__(
@@ -52,15 +66,27 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
         content.grid_columnconfigure(0, weight=1)
 
         row = 0
-        theme.panel_header(content, 2, "Image Decoder", "Recover the payload from a stego PNG").grid(
+        theme.panel_header(content, 2, "Audio Decoder", "Pending — no audio decoder yet").grid(
             row=row, column=0, sticky="w", pady=(0, 10)
         )
         row += 1
 
         labeled_file_picker(
-            content, row, "Stego Image", "Stego PNG", filetypes=[("PNG image", "*.png")], on_selected=self.on_stego_selected
+            content, row, "Stego Audio", "Stego WAV", filetypes=[("WAV audio", "*.wav")], on_selected=self.on_stego_selected
         )
         row += 2
+
+        playback_row = ctk.CTkFrame(content, fg_color="transparent")
+        playback_row.grid(row=row, column=0, sticky="ew", pady=(0, 12))
+        playback_row.grid_columnconfigure((0, 1), weight=1)
+        self.play_stego_button = ctk.CTkButton(
+            playback_row, text="Play Stego", state="disabled", command=self.on_play_stego
+        )
+        self.play_stego_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ctk.CTkButton(playback_row, text="Stop", command=self.on_stop_playback).grid(
+            row=0, column=1, sticky="ew", padx=(4, 0)
+        )
+        row += 1
 
         theme.subheading(content, "Verification Settings").grid(row=row, column=0, sticky="w", pady=(0, 4))
         row += 1
@@ -119,10 +145,22 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
 
     def on_stego_selected(self, path: Path) -> None:
         self.verify_stego_path = path
+        self.play_stego_button.configure(state="normal")
+
+    def on_play_stego(self) -> None:
+        if self.verify_stego_path is None:
+            return
+        try:
+            play_wav(self.verify_stego_path)
+        except _PLAYBACK_FAILURES as exc:
+            self.set_status(f"Could not play stego audio: {exc}", error=True)
+
+    def on_stop_playback(self) -> None:
+        stop_playback()
 
     def on_verify(self) -> None:
         if self.verify_stego_path is None:
-            self.set_status("Select a stego PNG first.", error=True)
+            self.set_status("Select a stego WAV first.", error=True)
             return
         media_id = self.media_id_entry.get().strip()
         if not media_id:
@@ -140,31 +178,22 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
         depth = int(self.lsb_depth_selector.get())
 
         try:
-            result = image_workflow.decode_image(self.verify_stego_path, depth, secret, media_id, public_key_pem)
+            # No audio decoder exists yet — this already passes the same
+            # arguments image_workflow.decode_image does, so replacing
+            # decode_audio_stub with a real decode_audio in audio_workflow.py
+            # is the only change needed once one exists.
+            audio_workflow.decode_audio_stub(self.verify_stego_path, depth, secret, media_id, public_key_pem)
+        except NotImplementedError as exc:
+            self.message_display.configure(text="–")
+            for label in self.result_values.values():
+                label.configure(text="–")
+            self.result_values["Details"].configure(text=str(exc), text_color=theme.PENDING_COLOR)
+            theme.set_verdict_banner(self.verdict_frame, self.verdict_label, "Not implemented yet", "pending")
+            self.set_status("Audio extraction/verification is not implemented yet.")
+            return
         except _EXPECTED_FAILURES as exc:
             self.set_status(f"Verification failed: {exc}", error=True)
             return
-
-        self.show_result(result)
-        self.set_status(f"Verdict: {result.verdict}")
-
-    def show_result(self, result: ImageDecodeResult) -> None:
-        verdict = result.verdict
-        payload = result.payload
-        error = result.error
-
-        if verdict == Verdict.AUTHENTIC:
-            theme.set_verdict_banner(self.verdict_frame, self.verdict_label, f"✓  {verdict}", "success")
-        else:
-            theme.set_verdict_banner(self.verdict_frame, self.verdict_label, f"✕  {verdict}", "error")
-
-        self.message_display.configure(text=(payload.metadata.get("note", "") or "(none)") if payload else "–")
-        self.result_values["Signature"].configure(text="Valid" if payload is not None else "–")
-        self.result_values["Hash match"].configure(
-            text="Yes" if verdict == Verdict.AUTHENTIC else ("No" if verdict == Verdict.TAMPERED else "–")
-        )
-        self.result_values["Start location"].configure(text="Found" if payload is not None else "–")
-        self.result_values["Details"].configure(text=str(error) if error else "OK")
 
     def set_status(self, text: str, error: bool = False) -> None:
         self.status_label.configure(text=text, text_color=(theme.ERROR_COLOR if error else theme.NORMAL_TEXT_COLOR))
