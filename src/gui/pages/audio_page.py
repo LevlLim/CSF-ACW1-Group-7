@@ -1,10 +1,5 @@
 """Audio page: shows the Embed and Extract & Verify panels side by side,
-mirroring image_page.py's two-column layout.
-
-Embed is fully wired via audio_stego (Person 3's encoder). Extract & Verify
-is a UI shell only — no audio decoder exists yet, see
-workflows/audio_workflow.py's decode_audio_stub.
-"""
+mirroring image_page.py's two-column layout."""
 
 from __future__ import annotations
 

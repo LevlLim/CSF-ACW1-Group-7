@@ -1,13 +1,14 @@
-"""Audio workflow: wires crypto_payload + audio_stego together.
+"""Audio workflow: wires crypto_payload + audio steganography modules together.
 
 No GUI toolkit here, so the GUI, a demo script, or tests can all call it the same way.
-Mirrors image_workflow.py's shape; audio decoding isn't implemented yet.
+Mirrors image_workflow.py's encode/decode workflow shape.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from audio_decoder import AudioDecodeResult, decode_audio_file
 from audio_stego import AudioEncodeResult, encode_audio_file
 from audio_stego.common import audio_capacity_bytes, frame_payload, load_wav_pcm
 from audio_stego.encoder import create_signed_audio_payload
@@ -55,5 +56,18 @@ def encode_audio(
     )
 
 
-def decode_audio_stub(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError("Audio extraction/verification is not implemented yet.")
+def decode_audio(
+    stego_path: Path | str,
+    lsb_depth: int,
+    start_secret: bytes,
+    media_id: str,
+    public_key_pem: bytes,
+) -> AudioDecodeResult:
+    """Extract and verify a signed payload from a stego WAV."""
+    return decode_audio_file(
+        stego_path,
+        lsb_depth=lsb_depth,
+        start_secret=start_secret,
+        media_id=media_id,
+        public_key_pem=public_key_pem,
+    )
