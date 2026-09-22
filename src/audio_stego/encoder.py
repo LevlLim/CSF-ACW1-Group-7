@@ -5,7 +5,6 @@ from pathlib import Path
 
 from crypto_payload import (
     build_payload,
-    derive_start_location,
     sign_payload,
 )
 
@@ -17,6 +16,13 @@ from .common import (
     save_wav_pcm,
     stable_audio_bytes,
     bytes_to_bits,
+)
+
+from .locations import (
+    HEADER_MAGIC,
+    header_length_bytes,
+    resolve_header_start_sample,
+    resolve_payload_start_sample,
 )
 
 from .models import AudioEncodeResult
@@ -165,7 +171,9 @@ def encode_audio_file(
         signed_envelope
     )
 
-    # 4. Determine how many samples are required
+    # 4. Determine how many samples are required for the payload, plus the
+    # small fixed-length locator header that tells the decoder how long the
+    # payload is (see locations.py — same two-step trick image_encoder uses)
 
     carriers_needed = (
         carrier_count_for_bytes(
@@ -174,31 +182,41 @@ def encode_audio_file(
         )
     )
 
+    header_bytes = HEADER_MAGIC + len(framed_payload).to_bytes(4, "big")
+    header_carriers = carrier_count_for_bytes(
+        header_length_bytes(),
+        lsb_depth,
+    )
+
     capacity = len(
         wav.samples
     )
-    # 5. Capacity check
-    if carriers_needed > capacity:
+    # 5. Capacity check (header + payload both need to fit)
+    if header_carriers + carriers_needed > capacity:
         raise AudioStegoError(
             "Payload is too large for "
             "the selected audio file"
         )
 
-    # 6. Person 5 derives secret start location
+    # 6. Person 5's HMAC derivation locates the header, then the payload
+    # (nudged clear of the header if they'd otherwise overlap)
 
-    start_location = (
-        derive_start_location(
-            secret=start_secret,
-            media_id=media_id,
-            cover_type="audio",
-            capacity=capacity,
-            payload_length=carriers_needed,
-        )
+    header_start = resolve_header_start_sample(
+        capacity, lsb_depth, start_secret, media_id
+    )
+    start_location = resolve_payload_start_sample(
+        capacity, lsb_depth, start_secret, media_id, len(framed_payload)
     )
 
-    # LSB embedding
+    # LSB embedding: locator header first, then the signed payload
     stego_samples = embed_lsb(
         samples=wav.samples,
+        payload=header_bytes,
+        start_location=header_start,
+        lsb_depth=lsb_depth,
+    )
+    stego_samples = embed_lsb(
+        samples=stego_samples,
         payload=framed_payload,
         start_location=start_location,
         lsb_depth=lsb_depth,
