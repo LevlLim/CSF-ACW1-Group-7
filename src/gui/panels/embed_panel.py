@@ -12,12 +12,14 @@ import customtkinter as ctk
 from PIL import Image
 
 from crypto_payload import CryptoPayloadError, generate_ed25519_keypair
+from image_stego_visuals import build_visuals
 from workflows import image_workflow
 
 from .. import theme
 from ..components import labeled_file_picker
 
 _THUMBNAIL_SIZE = (140, 140)
+_POPUP_IMAGE_SIZE = (1000, 700)
 
 # DEBUG.md says callers should only catch these, not raw crypto exceptions,
 # so a real bug still shows up as a crash instead of a vague error message.
@@ -40,6 +42,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.public_key_pem: bytes | None = None
         self.cover_path: Path | None = None
         self.stego_path: Path | None = None
+        self.diagnostics_changed_channels: int | None = None
+        self.diagnostic_images: dict[str, Image.Image] = {}
 
         self.grid_columnconfigure(0, weight=1)
 
@@ -140,25 +144,58 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         previews.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         previews.grid_columnconfigure((0, 1), weight=1)
 
-        cover_col = ctk.CTkFrame(previews, fg_color="transparent")
-        cover_col.grid(row=0, column=0, sticky="n", padx=(0, 6))
-        ctk.CTkLabel(cover_col, text="Cover").pack(pady=(0, 4))
-        self.cover_preview = ctk.CTkLabel(cover_col, text="(no image)", width=_THUMBNAIL_SIZE[0], height=_THUMBNAIL_SIZE[1])
-        self.cover_preview.pack()
+        self.cover_preview = self._preview_slot(previews, 0, 0, "Cover", "(no image)")
+        self.stego_preview = self._preview_slot(previews, 0, 1, "Stego", "(not yet encoded)")
+        self.bit_plane_preview = self._preview_slot(
+            previews, 1, 0, "LSB Change / Noise Map", "(generated after embedding)"
+        )
+        self.heat_map_preview = self._preview_slot(
+            previews, 1, 1, "Stego Heat Map", "(generated after embedding)"
+        )
+        self._enable_diagnostic_popup(self.bit_plane_preview, "bit_plane", "LSB Change / Noise Map")
+        self._enable_diagnostic_popup(self.heat_map_preview, "heat_map", "Stego Heat Map")
 
-        stego_col = ctk.CTkFrame(previews, fg_color="transparent")
-        stego_col.grid(row=0, column=1, sticky="n", padx=(6, 0))
-        ctk.CTkLabel(stego_col, text="Stego").pack(pady=(0, 4))
-        self.stego_preview = ctk.CTkLabel(stego_col, text="(not yet encoded)", width=_THUMBNAIL_SIZE[0], height=_THUMBNAIL_SIZE[1])
-        self.stego_preview.pack()
+    def _preview_slot(
+        self, master: ctk.CTkFrame, row: int, column: int, title: str, placeholder: str
+    ) -> ctk.CTkLabel:
+        column_frame = ctk.CTkFrame(master, fg_color="transparent")
+        column_frame.grid(row=row, column=column, sticky="n", padx=(0, 6) if column == 0 else (6, 0), pady=(0, 10))
+        ctk.CTkLabel(column_frame, text=title).pack(pady=(0, 4))
+        label = ctk.CTkLabel(column_frame, text=placeholder, width=_THUMBNAIL_SIZE[0], height=_THUMBNAIL_SIZE[1], wraplength=140)
+        label.pack()
+        return label
 
     def default_media_id(self) -> str:
         return f"img-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
 
-    def on_cover_selected(self, path: Path) -> None:
+    def on_cover_selected(self, path: Path) -> bool:
+        try:
+            with Image.open(path) as source:
+                if source.format != "PNG":
+                    raise ValueError("only PNG cover images are supported")
+                preview = source.copy()
+        except (OSError, ValueError) as exc:
+            self.cover_path = None
+            self.stego_path = None
+            self.diagnostic_images.clear()
+            self.clear_preview(self.cover_preview, "(no valid PNG selected)")
+            self.clear_preview(self.stego_preview, "(not yet encoded)")
+            self.clear_preview(self.bit_plane_preview, "(generated after embedding)")
+            self.clear_preview(self.heat_map_preview, "(generated after embedding)")
+            self.refresh_capacity()
+            self.set_status(f"Cover rejected: select a valid PNG image ({exc}).", error=True)
+            return False
+
         self.cover_path = path
-        self.show_preview(self.cover_preview, path)
+        self.stego_path = None
+        self.diagnostic_images.clear()
+        self.show_image(self.cover_preview, preview)
+        self.clear_preview(self.stego_preview, "(not yet encoded)")
+        self.clear_preview(self.bit_plane_preview, "(generated after embedding)")
+        self.clear_preview(self.heat_map_preview, "(generated after embedding)")
+        self.set_status(f"Cover PNG selected: {path.name}")
         self.refresh_capacity()
+        return True
 
     def on_generate_keypair(self) -> None:
         self.private_key_pem, self.public_key_pem = generate_ed25519_keypair()
@@ -242,19 +279,80 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
 
         self.stego_path = Path(stego_path)
         self.show_preview(self.stego_preview, self.stego_path)
+        self.diagnostics_changed_channels = None
+        try:
+            visuals = build_visuals(self.cover_path, self.stego_path, depth)
+            self.diagnostic_images["bit_plane"] = visuals.bit_plane_map
+            self.diagnostic_images["heat_map"] = visuals.heat_map
+            self.show_image(self.bit_plane_preview, visuals.bit_plane_map)
+            self.show_image(self.heat_map_preview, visuals.heat_map)
+            self.diagnostics_changed_channels = visuals.changed_channels
+        except _EXPECTED_FAILURES as exc:
+            # The stego file has already been saved successfully.  A preview
+            # rendering issue must not turn that valid encode into a failure.
+            self.clear_preview(self.bit_plane_preview, "(diagnostic unavailable)")
+            self.clear_preview(self.heat_map_preview, "(diagnostic unavailable)")
+            self.diagnostic_images.clear()
+            self.set_status(f"Encoded successfully, but diagnostics could not be generated: {exc}")
         self.embed_result_values["LSB depth"].configure(text=str(result.lsb_depth))
         self.embed_result_values["Capacity"].configure(text=f"{result.capacity_bits} bits")
         self.embed_result_values["Embedded"].configure(text=f"{result.embedded_bits} bits")
         self.embed_result_values["Changed pixels"].configure(text=str(result.changed_pixels))
-        self.set_status(f"Encoded successfully: {self.stego_path.name}")
+        if self.diagnostics_changed_channels is not None:
+            self.set_status(
+                f"Encoded successfully: {self.stego_path.name} — "
+                f"{self.diagnostics_changed_channels} RGB channels changed."
+            )
 
     def show_preview(self, label: ctk.CTkLabel, path: Path) -> None:
         with Image.open(path) as source:
-            thumb = source.copy()
+            image = source.copy()
+        self.show_image(label, image)
+
+    def show_image(self, label: ctk.CTkLabel, image: Image.Image) -> None:
+        thumb = image.copy()
         thumb.thumbnail(_THUMBNAIL_SIZE)
         photo = ctk.CTkImage(light_image=thumb, dark_image=thumb, size=thumb.size)
         label.configure(image=photo, text="")
         label.image = photo  # keep a reference alive; CTkLabel does not retain one
+
+    def clear_preview(self, label: ctk.CTkLabel, placeholder: str) -> None:
+        label.configure(image=None, text=placeholder)
+        label.image = None
+
+    def _enable_diagnostic_popup(self, label: ctk.CTkLabel, key: str, title: str) -> None:
+        label.configure(cursor="hand2")
+        label.bind("<Button-1>", lambda _event: self.show_diagnostic_popup(key, title))
+
+    def show_diagnostic_popup(self, key: str, title: str) -> None:
+        """Open a larger, nearest-neighbour view of an in-panel diagnostic."""
+        image = self.diagnostic_images.get(key)
+        if image is None:
+            return
+
+        popup = ctk.CTkToplevel(self)
+        popup.title(title)
+        popup.geometry("1080x820")
+        popup.minsize(700, 500)
+        popup.transient(self.winfo_toplevel())
+
+        ctk.CTkLabel(popup, text=title, font=theme.heading_font(18), anchor="w").pack(
+            fill="x", padx=20, pady=(18, 4)
+        )
+        ctk.CTkLabel(
+            popup,
+            text="Full diagnostic view. Black denotes no detected selected-LSB change.",
+            text_color=theme._EYEBROW_COLOR,
+            anchor="w",
+        ).pack(fill="x", padx=20, pady=(0, 12))
+
+        scale = min(_POPUP_IMAGE_SIZE[0] / image.width, _POPUP_IMAGE_SIZE[1] / image.height)
+        enlarged_size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+        enlarged = image.resize(enlarged_size, Image.Resampling.NEAREST)
+        photo = ctk.CTkImage(light_image=enlarged, dark_image=enlarged, size=enlarged.size)
+        image_label = ctk.CTkLabel(popup, image=photo, text="")
+        image_label.pack(expand=True, padx=20, pady=(0, 20))
+        image_label.image = photo
 
     def set_status(self, text: str, error: bool = False) -> None:
         self.status_label.configure(text=text, text_color=(theme.ERROR_COLOR if error else theme.NORMAL_TEXT_COLOR))
