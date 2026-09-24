@@ -241,9 +241,10 @@ The **Image** page shows Embed and Extract & Verify side by side. It supports
 PNG selection, session Ed25519 key generation, selectable 1–8-bit LSB depth,
 secret-based placement, live capacity checks, embedding, extraction, signature
 verification, media-hash verification, and verdict display. After embedding it
-also renders an LSB-change/noise map and a relative embedding-density heat
-map; both suppress the cover's natural LSB noise to make changed RGB channels
-and the embedded region visible.
+also renders an exact LSB-change map and a relative embedding-density heat
+map. The first shows precisely which selected low bits changed; the second
+counts changed pixels before grouping them into an easy-to-read overview, so
+sparse one-bit changes do not disappear.
 
 The **Audio** page mirrors this layout for WAV workflows. Its encoder provides
 WAV information, capacity feedback, session-key generation, embedding, and

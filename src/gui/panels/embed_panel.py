@@ -12,7 +12,7 @@ import customtkinter as ctk
 from PIL import Image
 
 from crypto_payload import CryptoPayloadError, generate_ed25519_keypair
-from image_stego_visuals import build_visuals
+from image_stego_visuals import build_visuals, resize_sparse_change_map
 from workflows import image_workflow
 
 from .. import theme
@@ -147,12 +147,12 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.cover_preview = self._preview_slot(previews, 0, 0, "Cover", "(no image)")
         self.stego_preview = self._preview_slot(previews, 0, 1, "Stego", "(not yet encoded)")
         self.bit_plane_preview = self._preview_slot(
-            previews, 1, 0, "LSB Change / Noise Map", "(generated after embedding)"
+            previews, 1, 0, "Exact LSB Change Map", "(generated after embedding)"
         )
         self.heat_map_preview = self._preview_slot(
             previews, 1, 1, "Stego Heat Map", "(generated after embedding)"
         )
-        self._enable_diagnostic_popup(self.bit_plane_preview, "bit_plane", "LSB Change / Noise Map")
+        self._enable_diagnostic_popup(self.bit_plane_preview, "bit_plane", "Exact LSB Change Map")
         self._enable_diagnostic_popup(self.heat_map_preview, "heat_map", "Stego Heat Map")
 
     def _preview_slot(
@@ -339,16 +339,25 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         ctk.CTkLabel(popup, text=title, font=theme.heading_font(18), anchor="w").pack(
             fill="x", padx=20, pady=(18, 4)
         )
+        description = (
+            "Visibility-enhanced view: sparse changes are expanded only for display before downscaling."
+            if key == "bit_plane"
+            else "Full diagnostic view. Black denotes no detected selected-LSB change."
+        )
         ctk.CTkLabel(
             popup,
-            text="Full diagnostic view. Black denotes no detected selected-LSB change.",
+            text=description,
             text_color=theme._EYEBROW_COLOR,
             anchor="w",
         ).pack(fill="x", padx=20, pady=(0, 12))
 
         scale = min(_POPUP_IMAGE_SIZE[0] / image.width, _POPUP_IMAGE_SIZE[1] / image.height)
         enlarged_size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
-        enlarged = image.resize(enlarged_size, Image.Resampling.NEAREST)
+        enlarged = (
+            resize_sparse_change_map(image, enlarged_size)
+            if key == "bit_plane"
+            else image.resize(enlarged_size, Image.Resampling.NEAREST)
+        )
         photo = ctk.CTkImage(light_image=enlarged, dark_image=enlarged, size=enlarged.size)
         image_label = ctk.CTkLabel(popup, image=photo, text="")
         image_label.pack(expand=True, padx=20, pady=(0, 20))
