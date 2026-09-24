@@ -116,7 +116,7 @@ def stable_audio_bytes(
         "Unsupported sample width"
     )
 
-#convert payload bytes to bits 
+#convert payload bytes to bits
 def bytes_to_bits(data: bytes) -> list[int]:
     """Convert bytes to a MSB-first list of bits."""
 
