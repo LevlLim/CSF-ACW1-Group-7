@@ -18,6 +18,8 @@ from image_encoder import (
     header_length_bytes,
     resolve_header_start_channel,
     resolve_payload_start_channel,
+    stable_image_hash,
+    stable_image_hash_hex,
 )
 
 
@@ -84,6 +86,39 @@ class ImageEncoderTests(unittest.TestCase):
                     framed_length,
                 )
             self.assertEqual(extracted, frame_payload(payload))
+
+    def test_stable_image_hash_matches_cover_and_stego(self) -> None:
+        secret = b"s" * 32
+        media_id = "image-001"
+        payload = b"signed-envelope"
+        lsb_depth = 2
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cover = Path(tmp) / "cover.png"
+            stego = Path(tmp) / "stego.png"
+            tampered = Path(tmp) / "tampered.png"
+            Image.new("RGBA", (12, 12), (120, 80, 40, 77)).save(cover)
+
+            cover_hash = stable_image_hash(cover, lsb_depth)
+            encode_image_file(
+                cover,
+                stego,
+                payload,
+                lsb_depth=lsb_depth,
+                start_secret=secret,
+                media_id=media_id,
+            )
+
+            self.assertEqual(len(cover_hash), 32)
+            self.assertEqual(stable_image_hash_hex(cover, lsb_depth), cover_hash.hex())
+            self.assertEqual(cover_hash, stable_image_hash(stego, lsb_depth))
+
+            with Image.open(stego) as image:
+                changed = image.copy()
+            red, green, blue, alpha = changed.getpixel((0, 0))
+            changed.putpixel((0, 0), (red ^ 0b00000100, green, blue, alpha))
+            changed.save(tampered)
+            self.assertNotEqual(cover_hash, stable_image_hash(tampered, lsb_depth))
 
 
 def _extract_framed_bytes(image: Image.Image, lsb_depth: int, start_channel: int, byte_count: int) -> bytes:

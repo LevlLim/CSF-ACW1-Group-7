@@ -11,6 +11,8 @@ from .encoder import (
     image_capacity_bits,
     resolve_header_start_channel,
     resolve_payload_start_channel,
+    stable_image_hash,
+    stable_image_hash_hex,
 )
 
 __all__ = [
@@ -24,4 +26,6 @@ __all__ = [
     "image_capacity_bits",
     "resolve_header_start_channel",
     "resolve_payload_start_channel",
+    "stable_image_hash",
+    "stable_image_hash_hex",
 ]
