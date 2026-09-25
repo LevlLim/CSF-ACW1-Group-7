@@ -13,8 +13,9 @@ from PIL import Image
 from crypto_payload import derive_start_location
 
 FRAME_MAGIC = b"CSFIMG1"
-HEADER_MAGIC = b"CSFHDR1"
+HEADER_MAGIC = b"CSFHDR2"
 _LENGTH_BYTES = 4
+_START_CHANNEL_BYTES = 4
 _RGB_CHANNELS = 3
 
 
@@ -30,6 +31,8 @@ class ImageEncodeResult:
     embedded_channels: int
     changed_channel_values: int
     changed_pixels: int
+    start_channel: int
+    start_pixel: tuple[int, int]
 
 
 def frame_payload(payload: bytes) -> bytes:
@@ -52,7 +55,7 @@ def image_capacity_bits(width: int, height: int, lsb_depth: int) -> int:
 def check_capacity(width: int, height: int, payload: bytes, lsb_depth: int) -> bool:
     """Return whether a locator header and framed payload fit in RGB LSBs."""
     framed = frame_payload(payload)
-    hidden_bytes = len(_locator_header(len(framed))) + len(framed)
+    hidden_bytes = header_length_bytes() + len(framed)
     return hidden_bytes * 8 <= image_capacity_bits(width, height, lsb_depth)
 
 
@@ -87,7 +90,7 @@ def stable_image_hash_hex(image_path: str | Path, lsb_depth: int) -> str:
 
 def header_length_bytes() -> int:
     """Return the fixed locator header length Person 2 must extract first."""
-    return len(HEADER_MAGIC) + _LENGTH_BYTES
+    return len(HEADER_MAGIC) + _LENGTH_BYTES + _START_CHANNEL_BYTES
 
 
 def resolve_header_start_channel(
@@ -148,13 +151,14 @@ def encode_image_file(
     lsb_depth: int,
     start_secret: bytes,
     media_id: str,
+    start_pixel: tuple[int, int] | None = None,
 ) -> ImageEncodeResult:
     """Embed framed payload bytes in a PNG using row-major RGB LSB replacement.
 
     ``payload`` should be the signed envelope produced by Person 5's
-    ``crypto_payload.sign_payload``. The start channel is HMAC-derived from the
-    secret, media ID, image capacity, and framed payload length; it is not
-    written into the image.
+    ``crypto_payload.sign_payload``. When ``start_pixel`` is supplied, the
+    payload begins at that pixel; otherwise the existing HMAC-derived default
+    is used. A secret-located header lets the decoder recover the position.
     """
     cover = Path(cover_path)
     stego = Path(stego_path)
@@ -169,14 +173,13 @@ def encode_image_file(
 
     width, height = image.size
     framed = frame_payload(payload)
-    header = _locator_header(len(framed))
-    header_bits = tuple(_bytes_to_bits(header))
     payload_bits = tuple(_bytes_to_bits(framed))
     capacity_bits = image_capacity_bits(width, height, lsb_depth)
-    if len(header_bits) + len(payload_bits) > capacity_bits:
+    header_bits_length = header_length_bytes() * 8
+    if header_bits_length + len(payload_bits) > capacity_bits:
         raise ValueError("payload does not fit in this image at the selected LSB depth")
 
-    header_channels = ceil(len(header_bits) / lsb_depth)
+    header_channels = ceil(header_bits_length / lsb_depth)
     embedded_channels = ceil(len(payload_bits) / lsb_depth)
     header_start = resolve_header_start_channel(
         width,
@@ -185,14 +188,19 @@ def encode_image_file(
         start_secret,
         media_id,
     )
-    start_channel = resolve_payload_start_channel(
-        width,
-        height,
-        lsb_depth,
-        start_secret,
-        media_id,
-        len(framed),
-    )
+    if start_pixel is None:
+        start_channel = resolve_payload_start_channel(
+            width, height, lsb_depth, start_secret, media_id, len(framed)
+        )
+    else:
+        start_channel = _start_channel_for_pixel(width, height, start_pixel)
+        if start_channel + embedded_channels > width * height * _RGB_CHANNELS:
+            raise ValueError("payload does not fit after the selected start pixel; choose an earlier pixel")
+        if _ranges_overlap(start_channel, embedded_channels, header_start, header_channels):
+            raise ValueError("selected start pixel overlaps the protected locator; choose another pixel")
+
+    header = _locator_header(len(framed), start_channel)
+    header_bits = tuple(_bytes_to_bits(header))
 
     pixels = image.load()
     header_changes = _embed_bits(pixels, width, header_start, header_bits, lsb_depth)
@@ -210,11 +218,34 @@ def encode_image_file(
         embedded_channels=header_channels + embedded_channels,
         changed_channel_values=header_changes[0] + payload_changes[0],
         changed_pixels=len(changed_pixel_positions),
+        start_channel=start_channel,
+        start_pixel=_pixel_for_channel(start_channel, width),
     )
 
 
-def _locator_header(framed_length: int) -> bytes:
-    return HEADER_MAGIC + framed_length.to_bytes(_LENGTH_BYTES, "big")
+def _locator_header(framed_length: int, start_channel: int) -> bytes:
+    return (
+        HEADER_MAGIC
+        + framed_length.to_bytes(_LENGTH_BYTES, "big")
+        + start_channel.to_bytes(_START_CHANNEL_BYTES, "big")
+    )
+
+
+def _start_channel_for_pixel(width: int, height: int, start_pixel: tuple[int, int]) -> int:
+    x, y = start_pixel
+    if not (0 <= x < width and 0 <= y < height):
+        raise ValueError("selected start pixel is outside the image")
+    return (y * width + x) * _RGB_CHANNELS
+
+
+def _pixel_for_channel(channel_index: int, width: int) -> tuple[int, int]:
+    pixel_index = channel_index // _RGB_CHANNELS
+    y, x = divmod(pixel_index, width)
+    return x, y
+
+
+def _ranges_overlap(start: int, length: int, other_start: int, other_length: int) -> bool:
+    return start < other_start + other_length and other_start < start + length
 
 
 def _capacity_channels(width: int, height: int, lsb_depth: int) -> int:

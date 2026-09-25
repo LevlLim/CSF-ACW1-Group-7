@@ -59,7 +59,8 @@ from image_encoder import (
 ### Encoder design
 
 - `encode_image_file(...)` accepts a PNG cover image, output path, signed
-  payload bytes, `lsb_depth` from 1 to 8, `start_secret`, and `media_id`.
+  payload bytes, `lsb_depth` from 1 to 8, `start_secret`, `media_id`, and an
+  optional mouse-selected `start_pixel`.
 - `stable_image_hash(image_path, lsb_depth)` returns a raw 32-byte digest of a
   normalised RGB representation after zeroing the selected LSB bits. It is a
   stable image-encoder helper: cover and stego digests match after embedding,
@@ -68,12 +69,11 @@ from image_encoder import (
   then pixel `(1, 0)`, and so on. Alpha is preserved and never used.
 - The embedded frame is `b"CSFIMG1"` + 4-byte big-endian payload length +
   payload bytes.
-- The decoder first derives a fixed locator header position with
-  `media_id + ":header"` and reads `b"CSFHDR1"` + 4-byte framed length. It then
-  derives the payload position with the real framed length by calling
-  `resolve_payload_start_channel(...)`. Both locations use Person 5's
-  `derive_start_location(...)`, `cover_type="image"`, capacity measured in RGB
-  channel slots, and length measured in required RGB channel slots.
+- The decoder derives a protected locator position with `media_id + ":header"`
+  and reads `b"CSFHDR2"`, the framed length, and the selected payload channel.
+  The locator position uses Person 5's HMAC-based `derive_start_location(...)`;
+  the clicked pixel is also included in the signed payload metadata so the
+  recovered location can be checked after signature verification.
 - `ImageEncodeResult` returns non-secret GUI details: output path, LSB depth,
   capacity, embedded size, and how many channel/pixel values changed.
 
@@ -96,9 +96,9 @@ from image_decoder import ImageDecodeResult, decode_image_file
 
 - `decode_image_file(...)` accepts a stego PNG, `lsb_depth`, start-location
   secret, media ID, and signer public-key PEM.
-- It derives the fixed locator-header position using the shared
-  `derive_start_location(...)` protocol, recovers `b"CSFHDR1"` and the framed
-  length, then derives and extracts the main `b"CSFIMG1"` payload frame.
+- It derives the locator-header position using the shared
+  `derive_start_location(...)` protocol, recovers `b"CSFHDR2"`, the framed
+  length and clicked start channel, then extracts the `b"CSFIMG1"` payload.
 - The extracted signed envelope is passed to `parse_and_verify(...)`; only a
   successfully verified payload is used for the subsequent media check.
 - The decoder masks the selected RGB LSBs, recomputes the stable media bytes,
@@ -238,7 +238,7 @@ A top nav bar (`gui/navigation.py`) switches between full-page views
 
 The **Image** page shows Embed and Extract & Verify side by side. It supports
 PNG selection, session Ed25519 key generation, selectable 1–8-bit LSB depth,
-secret-based placement, live capacity checks, embedding, extraction, signature
+mouse-selected payload placement with secret-based recovery, live capacity checks, embedding, extraction, signature
 verification, media-hash verification, and verdict display. After embedding it
 also renders an exact LSB-change map and a relative embedding-density heat
 map. The first shows precisely which selected low bits changed; the second
@@ -293,17 +293,16 @@ from image_encoder import (
 ```
 
 - `encode_image_file(...)` accepts a PNG cover image, output path, signed
-  payload bytes, `lsb_depth` from 1 to 8, `start_secret`, and `media_id`.
+  payload bytes, `lsb_depth` from 1 to 8, `start_secret`, `media_id`, and an
+  optional mouse-selected `start_pixel`.
 - Embedding uses row-major RGB channel slots: pixel `(0, 0)` red, green, blue,
   then pixel `(1, 0)`, and so on. Alpha is preserved and never used.
 - The embedded frame is `b"CSFIMG1"` + 4-byte big-endian payload length +
   payload bytes.
-- The decoder first derives a fixed locator header position with
-  `media_id + ":header"` and reads `b"CSFHDR1"` + 4-byte framed length. It then
-  derives the payload position with the real framed length by calling
-  `resolve_payload_start_channel(...)`. Both locations use Person 5's
-  `derive_start_location(...)`, `cover_type="image"`, capacity measured in RGB
-  channel slots, and length measured in required RGB channel slots.
+- The decoder derives a protected locator position with `media_id + ":header"`
+  and reads `b"CSFHDR2"`, the framed length, and the selected payload channel.
+  The locator position uses Person 5's HMAC-based `derive_start_location(...)`;
+  the clicked pixel is also included in the signed payload metadata.
 - `ImageEncodeResult` returns non-secret GUI details: output path, LSB depth,
   capacity, embedded size, and how many channel/pixel values changed.
 

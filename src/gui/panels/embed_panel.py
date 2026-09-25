@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import filedialog
 
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from crypto_payload import CryptoPayloadError, generate_ed25519_keypair, message_hash_hex
 from image_stego_visuals import build_visuals, resize_sparse_change_map
@@ -41,7 +41,10 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.private_key_pem: bytes | None = None
         self.public_key_pem: bytes | None = None
         self.cover_path: Path | None = None
+        self.cover_image: Image.Image | None = None
         self.stego_path: Path | None = None
+        self.selected_start_pixel: tuple[int, int] | None = None
+        self.cover_preview_size = (0, 0)
         self.diagnostics_changed_channels: int | None = None
         self.diagnostic_images: dict[str, Image.Image] = {}
         blank = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
@@ -100,7 +103,7 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         row += 1
 
         self.embed_result_card, self.embed_result_values = theme.kv_rows(
-            content, "Embed Result", ["LSB depth", "Capacity", "Embedded", "Changed pixels"]
+            content, "Embed Result", ["LSB depth", "Capacity", "Embedded", "Changed pixels", "Start pixel"]
         )
         self.embed_result_card.grid(row=row, column=0, sticky="ew")
 
@@ -133,18 +136,22 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.secret_entry = ctk.CTkEntry(master, show="*")
         self.secret_entry.grid(row=4, column=1, sticky="ew", padx=(6, 0), pady=6)
 
+        ctk.CTkLabel(master, text="Selected start pixel").grid(row=5, column=0, sticky="w", pady=6)
+        self.start_pixel_value = ctk.CTkLabel(master, text="Click the cover preview", anchor="w")
+        self.start_pixel_value.grid(row=5, column=1, sticky="ew", padx=(6, 0), pady=6)
+
         ctk.CTkButton(master, text="Generate Signing Keypair", command=self.on_generate_keypair).grid(
-            row=5, column=0, columnspan=2, sticky="ew", pady=(10, 6)
+            row=6, column=0, columnspan=2, sticky="ew", pady=(10, 6)
         )
         key_label_row = ctk.CTkFrame(master, fg_color="transparent")
-        key_label_row.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(6, 2))
+        key_label_row.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(6, 2))
         key_label_row.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(key_label_row, text="Public key (share with verifier)", anchor="w").grid(row=0, column=0, sticky="w")
         ctk.CTkButton(key_label_row, text="Copy", width=56, command=self.on_copy_public_key).grid(row=0, column=1, sticky="e")
 
         self.public_key_box = ctk.CTkTextbox(master, height=70, font=theme.mono_font())
         theme.style_textbox_selection(self.public_key_box)
-        self.public_key_box.grid(row=7, column=0, columnspan=2, sticky="ew")
+        self.public_key_box.grid(row=8, column=0, columnspan=2, sticky="ew")
         self.public_key_box.configure(state="disabled")
 
     def on_message_changed(self) -> None:
@@ -157,7 +164,9 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         previews.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         previews.grid_columnconfigure((0, 1), weight=1)
 
-        self.cover_preview = self._preview_slot(previews, 0, 0, "Cover", "(no image)")
+        self.cover_preview = self._preview_slot(previews, 0, 0, "Cover - click to choose start", "(no image)")
+        self.cover_preview.configure(cursor="crosshair")
+        self.cover_preview.bind("<Button-1>", self.on_cover_clicked)
         self.stego_preview = self._preview_slot(previews, 0, 1, "Stego", "(not yet encoded)")
         self.bit_plane_preview = self._preview_slot(
             previews, 1, 0, "Exact LSB Change Map", "(generated after embedding)"
@@ -189,6 +198,9 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
                 preview = source.copy()
         except (OSError, ValueError) as exc:
             self.cover_path = None
+            self.cover_image = None
+            self.selected_start_pixel = None
+            self.start_pixel_value.configure(text="Click the cover preview")
             self.clear_encoding_output()
             self.clear_preview(self.cover_preview, "(no valid PNG selected)")
             self.refresh_capacity()
@@ -196,13 +208,47 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
             return False
 
         self.cover_path = path
+        self.cover_image = preview
+        self.selected_start_pixel = None
+        self.start_pixel_value.configure(text="Click the cover preview")
         self.clear_encoding_output()
         self.media_id_entry.delete(0, "end")
         self.media_id_entry.insert(0, self.default_media_id())
         self.show_image(self.cover_preview, preview)
-        self.set_status(f"Cover PNG selected: {path.name}")
+        self.set_status(f"Cover PNG selected: {path.name}. Click the cover preview to choose the payload start.")
         self.refresh_capacity()
         return True
+
+    def on_cover_clicked(self, event: object) -> None:
+        """Map a click on the scaled preview back to an original-image pixel."""
+        if self.cover_image is None:
+            return
+
+        rendered_width, rendered_height = self.cover_preview_size
+        if rendered_width <= 0 or rendered_height <= 0:
+            return
+        left = (self.cover_preview.winfo_width() - rendered_width) / 2
+        top = (self.cover_preview.winfo_height() - rendered_height) / 2
+        display_x = event.x - left  # type: ignore[attr-defined]
+        display_y = event.y - top  # type: ignore[attr-defined]
+        if not (0 <= display_x < rendered_width and 0 <= display_y < rendered_height):
+            return
+
+        x = min(self.cover_image.width - 1, int(display_x * self.cover_image.width / rendered_width))
+        y = min(self.cover_image.height - 1, int(display_y * self.cover_image.height / rendered_height))
+        self.selected_start_pixel = (x, y)
+        self.start_pixel_value.configure(text=f"({x}, {y})")
+
+        marked = self.cover_image.copy().convert("RGB")
+        draw = ImageDraw.Draw(marked)
+        radius = max(3, min(marked.size) // 40)
+        line_width = max(1, radius // 3)
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline="white", width=line_width)
+        draw.line((x - radius, y, x + radius, y), fill="red", width=line_width)
+        draw.line((x, y - radius, x, y + radius), fill="red", width=line_width)
+        self.show_image(self.cover_preview, marked)
+        self.set_status(f"Payload start selected at pixel ({x}, {y}).")
+        self.refresh_capacity()
 
     def clear_encoding_output(self) -> None:
         """Clear results tied to the previously selected cover image."""
@@ -242,7 +288,14 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
             media_id = self.media_id_entry.get().strip()
             note = self.message_box.get("1.0", "end").strip()
             depth = int(self.lsb_depth_selector.get())
-            envelope = image_workflow.build_signed_envelope(self.cover_path, media_id, note, self.private_key_pem, depth)
+            envelope = image_workflow.build_signed_envelope(
+                self.cover_path,
+                media_id,
+                note,
+                self.private_key_pem,
+                depth,
+                start_pixel=self.selected_start_pixel,
+            )
             status = image_workflow.check_image_capacity(self.cover_path, envelope, depth)
         except _EXPECTED_FAILURES as exc:
             self.payload_size_value.configure(text="–")
@@ -265,6 +318,9 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         if self.private_key_pem is None:
             self.set_status("Generate a signing keypair first.", error=True)
             return
+        if self.selected_start_pixel is None:
+            self.set_status("Click the cover preview to select the payload start pixel.", error=True)
+            return
         secret = self.secret_entry.get().encode("utf-8")
         if not secret:
             self.set_status("Enter a start-location secret.", error=True)
@@ -274,7 +330,14 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         depth = int(self.lsb_depth_selector.get())
 
         try:
-            envelope = image_workflow.build_signed_envelope(self.cover_path, media_id, note, self.private_key_pem, depth)
+            envelope = image_workflow.build_signed_envelope(
+                self.cover_path,
+                media_id,
+                note,
+                self.private_key_pem,
+                depth,
+                start_pixel=self.selected_start_pixel,
+            )
             status = image_workflow.check_image_capacity(self.cover_path, envelope, depth)
             if not status.fits:
                 self.set_status(
@@ -293,7 +356,15 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
             output_path = Path(stego_path)
             if output_path.suffix.lower() != ".png":
                 output_path = output_path.with_suffix(".png")
-            result = image_workflow.encode_image(self.cover_path, output_path, envelope, depth, secret, media_id)
+            result = image_workflow.encode_image(
+                self.cover_path,
+                output_path,
+                envelope,
+                depth,
+                secret,
+                media_id,
+                start_pixel=self.selected_start_pixel,
+            )
         except _EXPECTED_FAILURES as exc:
             self.set_status(f"Encoding failed: {exc}", error=True)
             return
@@ -319,6 +390,7 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.embed_result_values["Capacity"].configure(text=f"{result.capacity_bits} bits")
         self.embed_result_values["Embedded"].configure(text=f"{result.embedded_bits} bits")
         self.embed_result_values["Changed pixels"].configure(text=str(result.changed_pixels))
+        self.embed_result_values["Start pixel"].configure(text=str(result.start_pixel))
         if self.diagnostics_changed_channels is not None:
             self.set_status(
                 f"Encoded successfully: {self.stego_path.name} — "
@@ -333,6 +405,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
     def show_image(self, label: ctk.CTkLabel, image: Image.Image) -> None:
         thumb = image.copy()
         thumb.thumbnail(_THUMBNAIL_SIZE)
+        if label is self.cover_preview:
+            self.cover_preview_size = thumb.size
         photo = ctk.CTkImage(light_image=thumb, dark_image=thumb, size=thumb.size)
         label.configure(image=photo, text="")
         label.image = photo  # keep a reference alive; CTkLabel does not retain one

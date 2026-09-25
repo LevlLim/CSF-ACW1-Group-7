@@ -35,12 +35,12 @@ from image_encoder import (
     header_length_bytes,
     image_capacity_bits,
     resolve_header_start_channel,
-    resolve_payload_start_channel,
     stable_image_hash,
 )
 
 _RGB_CHANNELS = 3
 _LENGTH_BYTES = 4
+_START_CHANNEL_BYTES = 4
 
 
 class LocatorNotFoundError(SerializationFormatError):
@@ -67,6 +67,7 @@ class ImageDecodeResult:
     payload: VerificationPayload | None
     error: Exception | None
     message_hash_matches: bool | None
+    start_pixel: tuple[int, int] | None
 
 
 def decode_image_file(
@@ -88,9 +89,10 @@ def decode_image_file(
     hash_matches: bool | None = None
     message_hash_matches: bool | None = None
     payload: VerificationPayload | None = None
+    start_pixel: tuple[int, int] | None = None
 
     try:
-        payload, hash_matches, message_hash_matches = _decode_and_verify(
+        payload, hash_matches, message_hash_matches, start_pixel = _decode_and_verify(
             stego_path, lsb_depth=lsb_depth, start_secret=start_secret,
             media_id=media_id, public_key_pem=public_key_pem,
         )
@@ -109,6 +111,7 @@ def decode_image_file(
         payload=payload,
         error=error,
         message_hash_matches=message_hash_matches,
+        start_pixel=start_pixel,
     )
 
 
@@ -119,7 +122,7 @@ def _decode_and_verify(
     start_secret: bytes,
     media_id: str,
     public_key_pem: bytes,
-) -> tuple[VerificationPayload, bool, bool | None]:
+) -> tuple[VerificationPayload, bool, bool | None, tuple[int, int]]:
     if not isinstance(lsb_depth, int) or not 1 <= lsb_depth <= 8:
         raise ValueError("lsb_depth must be an integer from 1 to 8")
 
@@ -139,16 +142,19 @@ def _decode_and_verify(
 
     if header_bytes[: len(HEADER_MAGIC)] != HEADER_MAGIC:
         raise LocatorNotFoundError("locator header magic mismatch - no payload found")
-    framed_length = int.from_bytes(header_bytes[len(HEADER_MAGIC):], "big")
+    length_end = len(HEADER_MAGIC) + _LENGTH_BYTES
+    framed_length = int.from_bytes(header_bytes[len(HEADER_MAGIC):length_end], "big")
+    start_channel = int.from_bytes(header_bytes[length_end:length_end + _START_CHANNEL_BYTES], "big")
     if framed_length <= 0:
         raise PayloadFrameError("declared framed payload length is not positive")
     if (header_length_bytes() + framed_length) * 8 > image_capacity_bits(width, height, lsb_depth):
         raise PayloadFrameError("declared payload length exceeds image capacity")
 
-    # --- 2. locate + read the framed, signed payload ---
-    start_channel = resolve_payload_start_channel(
-        width, height, lsb_depth, start_secret, media_id, framed_length
-    )
+    payload_channels = (framed_length * 8 + lsb_depth - 1) // lsb_depth
+    if start_channel + payload_channels > width * height * _RGB_CHANNELS:
+        raise PayloadFrameError("stored start location exceeds image capacity")
+
+    # --- 2. read the framed payload from the start location recovered above ---
     framed_bytes = _extract_bytes(pixels, width, start_channel, framed_length * 8, lsb_depth)
 
     if framed_bytes[: len(FRAME_MAGIC)] != FRAME_MAGIC:
@@ -162,6 +168,13 @@ def _decode_and_verify(
 
     # --- 3. verify signature and parse payload (Person 5) ---
     payload = parse_and_verify(envelope_bytes, public_key_pem)
+
+    pixel_index = start_channel // _RGB_CHANNELS
+    start_y, start_x = divmod(pixel_index, width)
+    start_pixel = (start_x, start_y)
+    signed_start_pixel = payload.metadata.get("start_pixel")
+    if signed_start_pixel is not None and signed_start_pixel != [start_x, start_y]:
+        raise PayloadValidationError("recovered start location does not match the signed payload")
 
     expected_message_hash = payload.metadata.get(MESSAGE_HASH_METADATA_KEY)
     message = payload.metadata.get("note", "")
@@ -177,7 +190,7 @@ def _decode_and_verify(
     actual_hash = stable_image_hash(stego_path, lsb_depth).hex()
     hash_matches = hmac.compare_digest(actual_hash, payload.media_hash)
 
-    return payload, hash_matches, message_hash_matches
+    return payload, hash_matches, message_hash_matches, start_pixel
 
 
 def _extract_bytes(pixels, width: int, start_channel: int, num_bits: int, lsb_depth: int) -> bytes:

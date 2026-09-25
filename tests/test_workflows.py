@@ -167,6 +167,36 @@ class ImageWorkflowTests(unittest.TestCase):
         assert result.payload is not None
         self.assertEqual(result.payload.metadata[MESSAGE_HASH_METADATA_KEY], message_hash_hex("hello"))
 
+    def test_clicked_start_pixel_is_recovered_automatically(self) -> None:
+        private_pem, public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_png(tmp_dir)
+            stego = tmp_dir / "stego.png"
+            envelope = image_workflow.build_signed_envelope(
+                cover,
+                "img-click",
+                "clicked start",
+                private_pem,
+                lsb_depth=2,
+                start_pixel=(8, 10),
+            )
+            encoded = image_workflow.encode_image(
+                cover,
+                stego,
+                envelope,
+                2,
+                b"a-secret",
+                "img-click",
+                start_pixel=(8, 10),
+            )
+            decoded = image_workflow.decode_image(stego, 2, b"a-secret", "img-click", public_pem)
+
+        self.assertEqual(encoded.start_pixel, (8, 10))
+        self.assertEqual(decoded.start_pixel, (8, 10))
+        self.assertEqual(decoded.verdict, Verdict.AUTHENTIC)
+
     def test_signed_payload_with_wrong_message_hash_cannot_be_authentic(self) -> None:
         private_pem, public_pem = generate_ed25519_keypair()
 

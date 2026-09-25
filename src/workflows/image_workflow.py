@@ -41,7 +41,14 @@ def capacity_bits(width: int, height: int, lsb_depth: int) -> int:
     return image_capacity_bits(width, height, lsb_depth)
 
 
-def build_signed_envelope(cover_path: Path, media_id: str, note: str, private_key_pem: bytes, lsb_depth: int) -> bytes:
+def build_signed_envelope(
+    cover_path: Path,
+    media_id: str,
+    note: str,
+    private_key_pem: bytes,
+    lsb_depth: int,
+    start_pixel: tuple[int, int] | None = None,
+) -> bytes:
     """Hash the cover file, build the FR3 payload, and sign it (FR4).
 
     The verifier only ever has the stego file, never the original cover, so
@@ -52,6 +59,8 @@ def build_signed_envelope(cover_path: Path, media_id: str, note: str, private_ke
     """
     media_hash = stable_image_hash(cover_path, lsb_depth)
     metadata = {"note": note, MESSAGE_HASH_METADATA_KEY: message_hash_hex(note)}
+    if start_pixel is not None:
+        metadata["start_pixel"] = list(start_pixel)
     payload = build_payload(media_id, media_hash, metadata, datetime.now(UTC))
     return sign_payload(payload, private_key_pem)
 
@@ -75,9 +84,16 @@ def encode_image(
     lsb_depth: int,
     start_secret: bytes,
     media_id: str,
+    start_pixel: tuple[int, int] | None = None,
 ) -> ImageEncodeResult:
     return encode_image_file(
-        cover_path, stego_path, envelope, lsb_depth=lsb_depth, start_secret=start_secret, media_id=media_id
+        cover_path,
+        stego_path,
+        envelope,
+        lsb_depth=lsb_depth,
+        start_secret=start_secret,
+        media_id=media_id,
+        start_pixel=start_pixel,
     )
 
 

@@ -1,20 +1,16 @@
 # Innovation (FR13)
 
-**What:** the payload start location is not fixed (e.g. top-left corner) and
-is not stored anywhere in the cover object. It is derived with
-HMAC-SHA-256 from a shared secret, the media ID, the cover type, the cover's
-capacity, and the payload length — implemented in
-`crypto_payload.derive_start_location` (`src/crypto_payload/core.py`) and used
-by the image encoder/decoder via `resolve_header_start_channel` /
-`resolve_payload_start_channel` (`src/image_encoder/encoder.py`).
+**What:** the image payload begins at a pixel selected with the mouse. Its
+locator header is placed using HMAC-SHA-256 over a shared secret, media ID,
+cover type and capacity. The header records the selected payload channel, and
+the same pixel is included in the digitally signed payload metadata so the
+decoder can recover and verify it.
 
 **Why it's useful:** an attacker who has the stego file but not the secret
-cannot locate the payload to remove, corrupt, or replay it — guessing is
-infeasible (256-bit HMAC output space) and the location changes whenever the
-media ID, cover, or payload length changes, so it isn't reusable across
-files. This directly answers the assignment's start-location security
-requirement (Criterion 1) rather than just picking "a location other than
-top-left."
+cannot locate the header needed to recover the clicked payload position. A
+modified header either points to invalid framed data or disagrees with the
+signed start pixel. This directly answers the assignment's start-location
+selection, recovery and tamper-detection requirements.
 
 **Limitations:**
 - Anyone who obtains the shared secret can locate and read every payload

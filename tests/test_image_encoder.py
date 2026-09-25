@@ -18,7 +18,6 @@ from image_encoder import (
     frame_payload,
     header_length_bytes,
     resolve_header_start_channel,
-    resolve_payload_start_channel,
     stable_image_hash,
     stable_image_hash_hex,
 )
@@ -55,11 +54,14 @@ class ImageEncoderTests(unittest.TestCase):
                 lsb_depth=lsb_depth,
                 start_secret=secret,
                 media_id=media_id,
+                start_pixel=(2, 3),
             )
 
             self.assertEqual(result.stego_path, stego)
-            self.assertEqual(result.embedded_bits, (len(HEADER_MAGIC) + 4 + len(frame_payload(payload))) * 8)
+            self.assertEqual(result.embedded_bits, (header_length_bytes() + len(frame_payload(payload))) * 8)
             self.assertGreater(result.changed_channel_values, 0)
+            self.assertEqual(result.start_pixel, (2, 3))
+            self.assertEqual(result.start_channel, (3 * 12 + 2) * 3)
 
             with Image.open(stego) as image:
                 self.assertEqual(image.mode, "RGBA")
@@ -71,15 +73,9 @@ class ImageEncoderTests(unittest.TestCase):
                     header_length_bytes(),
                 )
                 self.assertEqual(header[: len(HEADER_MAGIC)], HEADER_MAGIC)
-                framed_length = int.from_bytes(header[len(HEADER_MAGIC) :], "big")
-                payload_start = resolve_payload_start_channel(
-                    image.width,
-                    image.height,
-                    lsb_depth,
-                    secret,
-                    media_id,
-                    framed_length,
-                )
+                length_end = len(HEADER_MAGIC) + 4
+                framed_length = int.from_bytes(header[len(HEADER_MAGIC) : length_end], "big")
+                payload_start = int.from_bytes(header[length_end : length_end + 4], "big")
                 extracted = _extract_framed_bytes(
                     image,
                     lsb_depth,
@@ -87,6 +83,23 @@ class ImageEncoderTests(unittest.TestCase):
                     framed_length,
                 )
             self.assertEqual(extracted, frame_payload(payload))
+
+    def test_rejects_selected_pixel_too_close_to_image_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cover = Path(tmp) / "cover.png"
+            stego = Path(tmp) / "stego.png"
+            Image.new("RGB", (20, 20), (120, 80, 40)).save(cover)
+
+            with self.assertRaisesRegex(ValueError, "choose an earlier pixel"):
+                encode_image_file(
+                    cover,
+                    stego,
+                    b"signed-envelope",
+                    lsb_depth=2,
+                    start_secret=b"s" * 32,
+                    media_id="image-002",
+                    start_pixel=(19, 19),
+                )
 
     def test_stable_image_hash_matches_cover_and_stego(self) -> None:
         secret = b"s" * 32

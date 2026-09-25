@@ -230,7 +230,14 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
         location_found = payload is not None or isinstance(
             error, (KeyMaterialError, PayloadFrameError, SignatureInvalidError)
         )
-        self.result_values["Start location"].configure(text="Found" if location_found else "–")
+        location_text = (
+            f"Recovered pixel {result.start_pixel}"
+            if result.start_pixel is not None
+            else "Found"
+            if location_found
+            else "–"
+        )
+        self.result_values["Start location"].configure(text=location_text)
         self.result_values["Details"].configure(text=self.result_detail(result))
 
     def clear_result(self) -> None:

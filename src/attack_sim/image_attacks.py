@@ -15,7 +15,6 @@ from image_encoder import (
     frame_payload,
     header_length_bytes,
     resolve_header_start_channel,
-    resolve_payload_start_channel,
 )
 
 from .models import AttackSimulationResult
@@ -129,11 +128,12 @@ def _read_layout(pixels, width: int, height: int, lsb_depth: int, start_secret: 
     if header_bytes[: len(HEADER_MAGIC)] != HEADER_MAGIC:
         raise ValueError("Could not find locator header")
 
-    framed_length = int.from_bytes(header_bytes[len(HEADER_MAGIC) :], "big")
+    length_end = len(HEADER_MAGIC) + _LENGTH_BYTES
+    framed_length = int.from_bytes(header_bytes[len(HEADER_MAGIC) : length_end], "big")
     if framed_length <= 0:
         raise ValueError("Invalid framed payload length")
 
-    payload_start = resolve_payload_start_channel(width, height, lsb_depth, start_secret, media_id, framed_length)
+    payload_start = int.from_bytes(header_bytes[length_end : length_end + _LENGTH_BYTES], "big")
 
     return {
         "header_start": header_start,
