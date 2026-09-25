@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from crypto_payload import build_payload, sign_payload
+from crypto_payload import MESSAGE_HASH_METADATA_KEY, build_payload, message_hash_hex, sign_payload
 from image_decoder import ImageDecodeResult, decode_image_file
 from image_encoder import (
     ImageEncodeResult,
@@ -51,7 +51,7 @@ def build_signed_envelope(cover_path: Path, media_id: str, note: str, private_ke
     `image_decoder.decode_image_file` expects on the other side.
     """
     media_hash = stable_image_hash(cover_path, lsb_depth)
-    metadata = {"note": note} if note else {}
+    metadata = {"note": note, MESSAGE_HASH_METADATA_KEY: message_hash_hex(note)}
     payload = build_payload(media_id, media_hash, metadata, datetime.now(UTC))
     return sign_payload(payload, private_key_pem)
 

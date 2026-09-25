@@ -19,14 +19,17 @@ from pathlib import Path
 from PIL import Image
 
 from crypto_payload import (
+    MESSAGE_HASH_METADATA_KEY,
     KeyMaterialError,
     SignatureInvalidError,
     Verdict,
     build_payload,
     generate_ed25519_keypair,
+    message_hash_hex,
     sign_payload,
 )
 from image_decoder import LocatorNotFoundError
+from image_encoder import stable_image_hash
 from workflows import image_workflow
 from workflows.verification import verify_extracted_payload
 
@@ -160,6 +163,29 @@ class ImageWorkflowTests(unittest.TestCase):
 
         self.assertEqual(result.verdict, Verdict.AUTHENTIC)
         self.assertIsNotNone(result.payload)
+        self.assertTrue(result.message_hash_matches)
+        assert result.payload is not None
+        self.assertEqual(result.payload.metadata[MESSAGE_HASH_METADATA_KEY], message_hash_hex("hello"))
+
+    def test_signed_payload_with_wrong_message_hash_cannot_be_authentic(self) -> None:
+        private_pem, public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_png(tmp_dir)
+            stego = tmp_dir / "stego.png"
+            payload = build_payload(
+                "img-013",
+                stable_image_hash(cover, 2),
+                {"note": "hello", MESSAGE_HASH_METADATA_KEY: "0" * 64},
+            )
+            envelope = sign_payload(payload, private_pem)
+            image_workflow.encode_image(cover, stego, envelope, 2, b"a-secret", "img-013")
+
+            result = image_workflow.decode_image(stego, 2, b"a-secret", "img-013", public_pem)
+
+        self.assertEqual(result.verdict, Verdict.CANNOT_VERIFY)
+        self.assertFalse(result.message_hash_matches)
 
     def test_full_round_trip_detects_wrong_secret(self) -> None:
         private_pem, public_pem = generate_ed25519_keypair()

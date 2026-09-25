@@ -11,7 +11,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 from PIL import Image
 
-from crypto_payload import CryptoPayloadError, generate_ed25519_keypair
+from crypto_payload import CryptoPayloadError, generate_ed25519_keypair, message_hash_hex
 from image_stego_visuals import build_visuals, resize_sparse_change_map
 from workflows import image_workflow
 
@@ -114,32 +114,43 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.message_box = ctk.CTkTextbox(master, height=70)
         theme.style_textbox_selection(self.message_box)
         self.message_box.grid(row=1, column=1, sticky="ew", padx=(6, 0), pady=6)
-        self.message_box.bind("<KeyRelease>", lambda _event: self.refresh_capacity())
+        self.message_box.bind("<KeyRelease>", lambda _event: self.on_message_changed())
 
-        ctk.CTkLabel(master, text="LSB depth (1-8)").grid(row=2, column=0, sticky="w", pady=6)
+        ctk.CTkLabel(master, text="Message SHA-256 (before embedding)").grid(row=2, column=0, sticky="nw", pady=6)
+        self.message_hash_value = ctk.CTkLabel(
+            master, text=message_hash_hex(""), anchor="w", justify="left", wraplength=430, font=theme.mono_font(11)
+        )
+        self.message_hash_value.grid(row=2, column=1, sticky="ew", padx=(6, 0), pady=6)
+
+        ctk.CTkLabel(master, text="LSB depth (1-8)").grid(row=3, column=0, sticky="w", pady=6)
         self.lsb_depth_selector = ctk.CTkSegmentedButton(
             master, values=[str(i) for i in range(1, 9)], command=lambda _value: self.refresh_capacity()
         )
         self.lsb_depth_selector.set("1")
-        self.lsb_depth_selector.grid(row=2, column=1, sticky="ew", padx=(6, 0), pady=6)
+        self.lsb_depth_selector.grid(row=3, column=1, sticky="ew", padx=(6, 0), pady=6)
 
-        ctk.CTkLabel(master, text="Start-location secret").grid(row=3, column=0, sticky="w", pady=6)
+        ctk.CTkLabel(master, text="Start-location secret").grid(row=4, column=0, sticky="w", pady=6)
         self.secret_entry = ctk.CTkEntry(master, show="*")
-        self.secret_entry.grid(row=3, column=1, sticky="ew", padx=(6, 0), pady=6)
+        self.secret_entry.grid(row=4, column=1, sticky="ew", padx=(6, 0), pady=6)
 
         ctk.CTkButton(master, text="Generate Signing Keypair", command=self.on_generate_keypair).grid(
-            row=4, column=0, columnspan=2, sticky="ew", pady=(10, 6)
+            row=5, column=0, columnspan=2, sticky="ew", pady=(10, 6)
         )
         key_label_row = ctk.CTkFrame(master, fg_color="transparent")
-        key_label_row.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 2))
+        key_label_row.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(6, 2))
         key_label_row.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(key_label_row, text="Public key (share with verifier)", anchor="w").grid(row=0, column=0, sticky="w")
         ctk.CTkButton(key_label_row, text="Copy", width=56, command=self.on_copy_public_key).grid(row=0, column=1, sticky="e")
 
         self.public_key_box = ctk.CTkTextbox(master, height=70, font=theme.mono_font())
         theme.style_textbox_selection(self.public_key_box)
-        self.public_key_box.grid(row=6, column=0, columnspan=2, sticky="ew")
+        self.public_key_box.grid(row=7, column=0, columnspan=2, sticky="ew")
         self.public_key_box.configure(state="disabled")
+
+    def on_message_changed(self) -> None:
+        note = self.message_box.get("1.0", "end").strip()
+        self.message_hash_value.configure(text=message_hash_hex(note))
+        self.refresh_capacity()
 
     def build_previews(self, master: ctk.CTkFrame, row: int) -> None:
         previews = ctk.CTkFrame(master, fg_color="transparent")

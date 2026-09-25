@@ -30,6 +30,7 @@ from .errors import (
 )
 
 _PAYLOAD_VERSION = 1
+MESSAGE_HASH_METADATA_KEY = "message_sha256"
 _AES_GCM_NONCE_BYTES = 12
 _AES_256_KEY_BYTES = 32
 _START_LOCATION_DOMAIN = b"INF2005-CSF-START-LOCATION-V1\x00"
@@ -68,6 +69,13 @@ def sha256_hex(data: bytes) -> str:
     SHA-256 is used for the assignment's media-integrity fingerprint.
     """
     return hashlib.sha256(data).hexdigest()
+
+
+def message_hash_hex(message: str) -> str:
+    """Return the SHA-256 digest of the exact UTF-8 message being hidden."""
+    if not isinstance(message, str):
+        raise PayloadValidationError("message must be a string")
+    return sha256_hex(message.encode("utf-8"))
 
 
 def build_payload(

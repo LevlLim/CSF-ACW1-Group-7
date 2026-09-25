@@ -19,10 +19,13 @@ from pathlib import Path
 from PIL import Image
 
 from crypto_payload import (
+    MESSAGE_HASH_METADATA_KEY,
     CryptoPayloadError,
+    PayloadValidationError,
     SerializationFormatError,
     Verdict,
     VerificationPayload,
+    message_hash_hex,
     parse_and_verify,
     verdict_for_error,
 )
@@ -63,6 +66,7 @@ class ImageDecodeResult:
     verdict: Verdict
     payload: VerificationPayload | None
     error: Exception | None
+    message_hash_matches: bool | None
 
 
 def decode_image_file(
@@ -82,13 +86,16 @@ def decode_image_file(
     """
     error: Exception | None = None
     hash_matches: bool | None = None
+    message_hash_matches: bool | None = None
     payload: VerificationPayload | None = None
 
     try:
-        payload, hash_matches = _decode_and_verify(
+        payload, hash_matches, message_hash_matches = _decode_and_verify(
             stego_path, lsb_depth=lsb_depth, start_secret=start_secret,
             media_id=media_id, public_key_pem=public_key_pem,
         )
+        if message_hash_matches is False:
+            error = PayloadValidationError("decoded message hash does not match the embedded message hash")
     except CryptoPayloadError as exc:
         error = exc
     except (OSError, ValueError) as exc:
@@ -97,7 +104,12 @@ def decode_image_file(
         error = SerializationFormatError(str(exc))
 
     verdict = verdict_for_error(error, hash_matches)
-    return ImageDecodeResult(verdict=verdict, payload=payload, error=error)
+    return ImageDecodeResult(
+        verdict=verdict,
+        payload=payload,
+        error=error,
+        message_hash_matches=message_hash_matches,
+    )
 
 
 def _decode_and_verify(
@@ -107,7 +119,7 @@ def _decode_and_verify(
     start_secret: bytes,
     media_id: str,
     public_key_pem: bytes,
-) -> tuple[VerificationPayload, bool]:
+) -> tuple[VerificationPayload, bool, bool | None]:
     if not isinstance(lsb_depth, int) or not 1 <= lsb_depth <= 8:
         raise ValueError("lsb_depth must be an integer from 1 to 8")
 
@@ -151,11 +163,21 @@ def _decode_and_verify(
     # --- 3. verify signature and parse payload (Person 5) ---
     payload = parse_and_verify(envelope_bytes, public_key_pem)
 
+    expected_message_hash = payload.metadata.get(MESSAGE_HASH_METADATA_KEY)
+    message = payload.metadata.get("note", "")
+    message_hash_matches: bool | None = None
+    if expected_message_hash is not None:
+        message_hash_matches = (
+            isinstance(message, str)
+            and isinstance(expected_message_hash, str)
+            and hmac.compare_digest(message_hash_hex(message), expected_message_hash)
+        )
+
     # --- 4. FR9: recompute the same stable hash used by the encoder.
     actual_hash = stable_image_hash(stego_path, lsb_depth).hex()
     hash_matches = hmac.compare_digest(actual_hash, payload.media_hash)
 
-    return payload, hash_matches
+    return payload, hash_matches, message_hash_matches
 
 
 def _extract_bytes(pixels, width: int, start_channel: int, num_bits: int, lsb_depth: int) -> bytes:

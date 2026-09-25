@@ -7,7 +7,14 @@ from pathlib import Path
 import customtkinter as ctk
 from PIL import Image
 
-from crypto_payload import CryptoPayloadError, KeyMaterialError, SignatureInvalidError, Verdict
+from crypto_payload import (
+    MESSAGE_HASH_METADATA_KEY,
+    CryptoPayloadError,
+    KeyMaterialError,
+    SignatureInvalidError,
+    Verdict,
+    message_hash_hex,
+)
 from image_decoder import ImageDecodeResult, LocatorNotFoundError, PayloadFrameError
 from workflows import image_workflow
 
@@ -95,10 +102,22 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
         row += 1
 
         self.results_card, self.result_values = theme.kv_rows(
-            content, "Results", ["Signature", "Hash match", "Start location", "Details"]
+            content,
+            "Results",
+            [
+                "Signature",
+                "Media hash match",
+                "Embedded message hash",
+                "Decoded message hash",
+                "Message hash match",
+                "Start location",
+                "Details",
+            ],
         )
         self.results_card.grid(row=row, column=0, sticky="ew")
         self.result_values["Details"].configure(wraplength=560, justify="right")
+        self.result_values["Embedded message hash"].configure(wraplength=560, justify="right")
+        self.result_values["Decoded message hash"].configure(wraplength=560, justify="right")
 
     def build_settings(self, master: ctk.CTkFrame) -> None:
         ctk.CTkLabel(master, text="Media ID").grid(row=0, column=0, sticky="w", pady=6)
@@ -191,8 +210,22 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
         self.message_display.configure(text=(payload.metadata.get("note", "") or "(none)") if payload else "–")
         signature = "Invalid" if isinstance(error, SignatureInvalidError) else ("Valid" if payload is not None else "–")
         self.result_values["Signature"].configure(text=signature)
-        self.result_values["Hash match"].configure(
+        self.result_values["Media hash match"].configure(
             text="Yes" if verdict == Verdict.AUTHENTIC else ("No" if verdict == Verdict.TAMPERED else "–")
+        )
+        message = payload.metadata.get("note", "") if payload else None
+        embedded_message_hash = payload.metadata.get(MESSAGE_HASH_METADATA_KEY) if payload else None
+        decoded_message_hash = message_hash_hex(message) if isinstance(message, str) else None
+        self.result_values["Embedded message hash"].configure(text=embedded_message_hash or "–")
+        self.result_values["Decoded message hash"].configure(text=decoded_message_hash or "–")
+        self.result_values["Message hash match"].configure(
+            text=(
+                "Yes"
+                if result.message_hash_matches is True
+                else "No"
+                if result.message_hash_matches is False
+                else "Not available"
+            )
         )
         location_found = payload is not None or isinstance(
             error, (KeyMaterialError, PayloadFrameError, SignatureInvalidError)
