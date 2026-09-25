@@ -11,11 +11,11 @@
 | FR5 | Image steganographic embedding | Person 1 | **Implemented:** P1 embeds output bytes with image LSB replacement. |
 | FR6 | Audio steganographic embedding | Person 3 | **Implemented:** P3 embeds output bytes with audio LSB replacement. |
 | FR7 | Variable start location | Person 5 + P1/P3/P2/P4 | **Implemented:** HMAC-derived location; media modules apply it during embedding/extraction. |
-| FR8 | Extraction and decoding | Person 2 / Person 4 | **Partially Implemented:** P2/P4 extract bytes then call `parse_and_verify`. |
-| FR9 | Hash verification | Person 5 + Person 2/4 | **Partially Implemented:** SHA-256 comparison helper; P2/P4 supply the agreed stable media bytes. |
-| FR10 | Verdict generation | Person 5 + Person 2/4 | **Partially Implemented:** verdict mapper; P2/P4 display it in their workflow/GUI. |
-| FR11 | Positive and negative cases | Person 6, with P1--P5 support | **Partially Implemented:** This library provides unit-testable crypto failure conditions. |
-| FR12 | Evidence and reproducibility | Person 6, with team support | **Partially Implemented:** Setup and validation commands are documented below. |
+| FR8 | Extraction and decoding | Person 2 / Person 4 | **Implemented:** P2/P4 extract bytes then call `parse_and_verify`. |
+| FR9 | Hash verification | Person 5 + Person 2/4 | **Implemented:** SHA-256 comparison helper; P2/P4 supply the agreed stable media bytes. |
+| FR10 | Verdict generation | Person 5 + Person 2/4 | **Implemented:** verdict mapper; P2/P4 display it in their workflow/GUI. |
+| FR11 | Positive and negative cases | Person 6, with P1--P5 support | **Implemented:** This library provides unit-testable crypto failure conditions. |
+| FR12 | Evidence and reproducibility | Person 6, with team support | **Implemented:** Setup and validation commands are documented below. |
 | FR13 | Innovation | Person 6 | **Implemented:** HMAC-derived secret start location and optional AES-GCM are available as possible supporting design elements. |
 
 ### Setup and verification
@@ -38,6 +38,11 @@ python -m mypy
 
 ## Person 1: Image Encoder API
 
+This repository provides the PNG image-encoder API for **FR1: Image input**,
+**FR5: Image steganographic embedding**, and **FR7: Variable start location**.
+
+### Public imports
+
 The PNG image encoder is exposed through `image_encoder` and is GUI-framework
 independent:
 
@@ -50,6 +55,8 @@ from image_encoder import (
     stable_image_hash,
 )
 ```
+
+### Encoder design
 
 - `encode_image_file(...)` accepts a PNG cover image, output path, signed
   payload bytes, `lsb_depth` from 1 to 8, `start_secret`, and `media_id`.
@@ -73,12 +80,20 @@ from image_encoder import (
 
 ## Person 2: Image Decoder & Verification
 
+This repository provides the PNG image-decoder and verification API for
+**FR8: Extraction and decoding**, **FR9: Hash verification**, and
+**FR10: Verdict generation**.
+
+### Public imports
+
 The PNG decoder is exposed through `image_decoder` and is independent of the
 GUI toolkit:
 
 ```python
 from image_decoder import ImageDecodeResult, decode_image_file
 ```
+
+### Decoder and verification design
 
 - `decode_image_file(...)` accepts a stego PNG, `lsb_depth`, start-location
   secret, media ID, and signer public-key PEM.
@@ -96,6 +111,11 @@ from image_decoder import ImageDecodeResult, decode_image_file
 
 ## Person 3: Audio Encoder
 
+This repository provides the WAV audio-encoder API for **FR2: Audio input**,
+**FR6: Audio steganographic embedding**, and **FR7: Variable start location**.
+
+### Public imports
+
 The WAV encoder is exposed through `audio_stego`; the workflow wrapper is used
 by the GUI:
 
@@ -103,6 +123,8 @@ by the GUI:
 from audio_stego import AudioEncodeResult, encode_audio_file
 from workflows.audio_workflow import check_audio_capacity, encode_audio
 ```
+
+### Encoder design
 
 - Input is uncompressed 8-bit or 16-bit PCM WAV. The loader preserves channel
   count, sample width, frame rate, and frame count when saving the stego WAV.
@@ -121,21 +143,34 @@ from workflows.audio_workflow import check_audio_capacity, encode_audio
 
 ## Person 4: Audio Decoder & Verification
 
-Person 4 owns the audio-side verification contract. The Audio Verify panel
-already collects the agreed decoder inputs: stego WAV, LSB depth,
-start-location secret, media ID, and signer public-key PEM.
+This repository provides the WAV audio-decoder and verification API for
+**FR8: Extraction and decoding**, **FR9: Hash verification**, and
+**FR10: Verdict generation**.
 
-- The audio decoder uses the same FR10 verification sequence as the image
-  decoder: recover the framed envelope, verify it with `parse_and_verify(...)`,
-  recreate the stable audio bytes, then call `media_hash_matches(...)`.
-- `workflows.verification.verify_extracted_payload(...)` is the reusable shared
-  helper for this sequence; it returns `Authentic`, `Tampered`, or a mapped
-  verification failure without exposing untrusted payload metadata.
-- Audio framing uses `b"CSF7"` followed by a 4-byte big-endian payload length.
-  The decoder protocol must use the same sample ordering, LSB depth, stable
-  audio representation, start secret, media ID, and public key as encoding.
-- The existing Audio Verify GUI panel is the integration point for displaying
-  the verdict, recovered note, signature status, hash result, and details.
+### Public imports
+
+The WAV decoder is exposed through `audio_decoder` and is independent of the
+GUI toolkit:
+
+```python
+from audio_decoder import AudioDecodeResult, decode_audio_file
+```
+
+### Decoder and verification design
+
+- `decode_audio_file(...)` accepts a stego WAV, `lsb_depth`, start-location
+  secret, media ID, and signer public-key PEM.
+- It derives the fixed locator-header position using the shared
+  `resolve_header_start_sample(...)` protocol, recovers `b"CSFAHD1"` and the
+  framed length, then derives and extracts the main `b"CSF7"` payload frame.
+- The extracted signed envelope is passed to `parse_and_verify(...)`; only a
+  successfully verified payload is used for the subsequent media check.
+- The decoder masks the selected PCM-sample LSBs, recomputes the stable media
+  bytes, and calls `media_hash_matches(...)` for FR9.
+- `AudioDecodeResult` returns the FR10 `Verdict`, a verified
+  `VerificationPayload` when authentic, and a safe public error otherwise.
+- `tests/test_audio_decoder.py` covers short and large authentic payloads plus
+  an altered sample, a wrong start secret, and a cover with no hidden payload.
 
 ## Person 5: Crypto & Payload Core
 
@@ -181,6 +216,10 @@ prototype is not post-quantum secure. See [EVALUATION.md](EVALUATION.md) and
 logging rules.
 
 ## Person 6: GUI Integration, Test Matrix, Innovation
+
+This repository provides the integration, assessment, and documentation work
+for **FR11: Positive and negative cases**, **FR12: Evidence and
+reproducibility**, and **FR13: Innovation**.
 
 ### GUI
 

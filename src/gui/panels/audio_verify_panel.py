@@ -1,12 +1,4 @@
-"""Extract & Verify panel for audio: UI shell ready for the audio decoder.
-
-Mirrors gui/panels/verify_panel.py for images. No audio decoder exists yet
-(see workflows/audio_workflow.py's decode_audio_stub) — the panel already
-collects and passes the same arguments image_decoder.decode_image_file
-expects (stego path, lsb depth, start secret, media id, public key), so
-swapping decode_audio_stub for the real call is the only change needed
-once Person 4 builds one.
-"""
+"""Extract a payload from a stego WAV and verify it against a public key."""
 
 from __future__ import annotations
 
@@ -14,7 +6,8 @@ from pathlib import Path
 
 import customtkinter as ctk
 
-from crypto_payload import CryptoPayloadError
+from audio_decoder import AudioDecodeResult
+from crypto_payload import CryptoPayloadError, Verdict
 from workflows import audio_workflow
 
 from .. import theme
@@ -40,11 +33,7 @@ def _normalize_public_key_pem(text: str) -> bytes:
 
 
 class AudioVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships without type stubs
-    """Extract a payload from a stego WAV and verify it against a public key.
-
-    Pending — no audio decoder exists yet, so on_verify always reports
-    "not implemented" instead of a real verdict.
-    """
+    """Extract a payload from a stego WAV and verify it against a public key."""
 
     def __init__(self, master: ctk.CTkBaseClass) -> None:
         super().__init__(
@@ -66,7 +55,7 @@ class AudioVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
         content.grid_columnconfigure(0, weight=1)
 
         row = 0
-        theme.panel_header(content, 2, "Audio Decoder", "Pending — no audio decoder yet").grid(
+        theme.panel_header(content, 2, "Audio Decoder", "Recover the payload from a stego WAV").grid(
             row=row, column=0, sticky="w", pady=(0, 10)
         )
         row += 1
@@ -178,22 +167,31 @@ class AudioVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
         depth = int(self.lsb_depth_selector.get())
 
         try:
-            # No audio decoder exists yet — this already passes the same
-            # arguments image_workflow.decode_image does, so replacing
-            # decode_audio_stub with a real decode_audio in audio_workflow.py
-            # is the only change needed once one exists.
-            audio_workflow.decode_audio_stub(self.verify_stego_path, depth, secret, media_id, public_key_pem)
-        except NotImplementedError as exc:
-            self.message_display.configure(text="–")
-            for label in self.result_values.values():
-                label.configure(text="–")
-            self.result_values["Details"].configure(text=str(exc), text_color=theme.PENDING_COLOR)
-            theme.set_verdict_banner(self.verdict_frame, self.verdict_label, "Not implemented yet", "pending")
-            self.set_status("Audio extraction/verification is not implemented yet.")
-            return
+            result = audio_workflow.decode_audio(self.verify_stego_path, depth, secret, media_id, public_key_pem)
         except _EXPECTED_FAILURES as exc:
             self.set_status(f"Verification failed: {exc}", error=True)
             return
+
+        self.show_result(result)
+        self.set_status(f"Verdict: {result.verdict}")
+
+    def show_result(self, result: AudioDecodeResult) -> None:
+        verdict = result.verdict
+        payload = result.payload
+        error = result.error
+
+        if verdict == Verdict.AUTHENTIC:
+            theme.set_verdict_banner(self.verdict_frame, self.verdict_label, f"✓  {verdict}", "success")
+        else:
+            theme.set_verdict_banner(self.verdict_frame, self.verdict_label, f"✕  {verdict}", "error")
+
+        self.message_display.configure(text=(payload.metadata.get("note", "") or "(none)") if payload else "–")
+        self.result_values["Signature"].configure(text="Valid" if payload is not None else "–")
+        self.result_values["Hash match"].configure(
+            text="Yes" if verdict == Verdict.AUTHENTIC else ("No" if verdict == Verdict.TAMPERED else "–")
+        )
+        self.result_values["Start location"].configure(text="Found" if payload is not None else "–")
+        self.result_values["Details"].configure(text=str(error) if error else "OK")
 
     def set_status(self, text: str, error: bool = False) -> None:
         self.status_label.configure(text=text, text_color=(theme.ERROR_COLOR if error else theme.NORMAL_TEXT_COLOR))
