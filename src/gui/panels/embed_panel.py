@@ -189,6 +189,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.cover_path = path
         self.stego_path = None
         self.diagnostic_images.clear()
+        self.media_id_entry.delete(0, "end")                    
+        self.media_id_entry.insert(0, self.default_media_id())
         self.show_image(self.cover_preview, preview)
         self.clear_preview(self.stego_preview, "(not yet encoded)")
         self.clear_preview(self.bit_plane_preview, "(generated after embedding)")

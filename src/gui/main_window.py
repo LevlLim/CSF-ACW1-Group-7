@@ -13,6 +13,7 @@ from . import theme
 from .navigation import NavigationBar
 from .pages.audio_page import AudioPage
 from .pages.image_page import ImagePage
+from .pages.attack_sim_page import AttackSimPage
 
 APP_TITLE = "INF2005 Steganography Tool"
 _TAGLINE = "STEGANOGRAPHY · VERIFY · PROTECT"
@@ -20,7 +21,7 @@ _THEME_FILE = Path(__file__).parent / "assets" / "console_theme.json"
 
 # (key, label) in display order. Test Cases / Innovation / Docs / Overview
 # stay as real files instead of GUI pages — nav is just the working parts.
-_PAGES = [("image", "Image"), ("audio", "Audio")]
+_PAGES = [("image", "Image"), ("audio", "Audio"), ("attacks", "Attack Sim")]
 
 
 class App(ctk.CTk):  # type: ignore[misc]  # customtkinter ships without type stubs
@@ -75,6 +76,7 @@ class App(ctk.CTk):  # type: ignore[misc]  # customtkinter ships without type st
         self.pages: dict[str, ctk.CTkFrame] = {
             "image": ImagePage(container),
             "audio": AudioPage(container),
+            "attacks": AttackSimPage(container),
         }
         for page in self.pages.values():
             page.grid(row=0, column=0, sticky="nsew")
