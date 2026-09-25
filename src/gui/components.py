@@ -18,7 +18,7 @@ def labeled_file_picker(
     field_label: str,
     *,
     filetypes: list[tuple[str, str]],
-    on_selected: Callable[[Path], None],
+    on_selected: Callable[[Path], bool | None],
 ) -> ctk.CTkLabel:
     """A subheading label plus a file picker row underneath.
 
@@ -37,7 +37,7 @@ def file_picker_row(
     label_text: str,
     *,
     filetypes: list[tuple[str, str]],
-    on_selected: Callable[[Path], None],
+    on_selected: Callable[[Path], bool | None],
 ) -> ctk.CTkLabel:
     """Label + selected-path text + Browse button, all on one grid row.
 
@@ -52,8 +52,11 @@ def file_picker_row(
         if not path:
             return
         selected = Path(path)
-        path_label.configure(text=selected.name)
-        on_selected(selected)
+        # A callback can reject a file after inspecting its real contents
+        # (rather than trusting its extension).  Do not display a rejected
+        # path as though it were the active cover object.
+        if on_selected(selected) is not False:
+            path_label.configure(text=selected.name)
 
     ctk.CTkButton(master, text="Browse...", command=browse).grid(row=row, column=2, padx=12, pady=6)
     return path_label

@@ -11,8 +11,10 @@ from pathlib import Path
 from tkinter import filedialog
 
 import customtkinter as ctk
+from PIL import Image
 
 from audio_stego.common import AudioStegoError, load_wav_pcm
+from audio_stego_visuals import build_visuals
 from crypto_payload import CryptoPayloadError, generate_ed25519_keypair
 from workflows import audio_workflow
 
@@ -22,6 +24,8 @@ from ..components import labeled_file_picker
 
 _EXPECTED_FAILURES = (CryptoPayloadError, AudioStegoError, ValueError, OSError)
 _PLAYBACK_FAILURES = (AudioStegoError, OSError, RuntimeError)
+_DIAGNOSTIC_SIZE = (280, 120)
+_POPUP_IMAGE_SIZE = (1000, 600)
 
 
 class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships without type stubs
@@ -40,6 +44,8 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         self.public_key_pem: bytes | None = None
         self.cover_path: Path | None = None
         self.stego_path: Path | None = None
+        self.diagnostics_changed_samples: int | None = None
+        self.diagnostic_images: dict[str, Image.Image] = {}
 
         self.grid_columnconfigure(0, weight=1)
 
@@ -113,6 +119,9 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         self.status_label.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         row += 1
 
+        self.build_diagnostics(content, row)
+        row += 2
+
         self.embed_result_card, self.embed_result_values = theme.kv_rows(
             content, "Embed Result", ["LSB depth", "Capacity", "Payload bytes", "Carriers used", "Start location"]
         )
@@ -155,23 +164,55 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         self.public_key_box.grid(row=6, column=0, columnspan=2, sticky="ew")
         self.public_key_box.configure(state="disabled")
 
+    def build_diagnostics(self, master: ctk.CTkFrame, row: int) -> None:
+        theme.subheading(master, "WAV Stego Diagnostics").grid(row=row, column=0, sticky="w", pady=(0, 4))
+        row += 1
+        diagnostics = ctk.CTkFrame(master, fg_color="transparent")
+        diagnostics.grid(row=row, column=0, sticky="ew", pady=(0, 12))
+        diagnostics.grid_columnconfigure((0, 1), weight=1)
+        self.lsb_change_preview = self._diagnostic_slot(
+            diagnostics, 0, "LSB Change Map", "(generated after embedding)"
+        )
+        self.density_preview = self._diagnostic_slot(
+            diagnostics, 1, "Embedding Density", "(generated after embedding)"
+        )
+        self._enable_diagnostic_popup(self.lsb_change_preview, "lsb_change", "WAV LSB Change Map")
+        self._enable_diagnostic_popup(self.density_preview, "density", "WAV Embedding-Density Timeline")
+
+    def _diagnostic_slot(
+        self, master: ctk.CTkFrame, column: int, title: str, placeholder: str
+    ) -> ctk.CTkLabel:
+        frame = ctk.CTkFrame(master, fg_color="transparent")
+        frame.grid(row=0, column=column, sticky="n", padx=(0, 6) if column == 0 else (6, 0))
+        ctk.CTkLabel(frame, text=title).pack(pady=(0, 4))
+        label = ctk.CTkLabel(frame, text=placeholder, width=_DIAGNOSTIC_SIZE[0], height=_DIAGNOSTIC_SIZE[1], wraplength=240)
+        label.pack()
+        return label
+
     def default_media_id(self) -> str:
         return f"audio-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
 
-    def on_cover_selected(self, path: Path) -> None:
+    def on_cover_selected(self, path: Path) -> bool:
         self.cover_path = path
         try:
             wav = load_wav_pcm(path)
         except AudioStegoError as exc:
+            self.cover_path = None
+            self.diagnostic_images.clear()
             self.set_status(f"Could not read WAV: {exc}", error=True)
-            return
+            return False
         self.channels_value.configure(text=str(wav.channels))
         self.sample_rate_value.configure(text=f"{wav.frame_rate} Hz")
         duration = wav.frame_count / wav.frame_rate if wav.frame_rate else 0
         self.duration_value.configure(text=f"{duration:.1f} s")
         self.play_cover_button.configure(state="normal")
         self.play_stego_button.configure(state="disabled")
+        self.clear_diagnostic(self.lsb_change_preview, "(generated after embedding)")
+        self.clear_diagnostic(self.density_preview, "(generated after embedding)")
+        self.diagnostic_images.clear()
+        self.set_status(f"Cover WAV selected: {path.name}")
         self.refresh_capacity()
+        return True
 
     def on_play_cover(self) -> None:
         if self.cover_path is None:
@@ -274,12 +315,74 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
 
         self.stego_path = Path(stego_path)
         self.play_stego_button.configure(state="normal")
+        self.diagnostics_changed_samples = None
+        try:
+            visuals = build_visuals(self.cover_path, self.stego_path, depth)
+            self.diagnostic_images["lsb_change"] = visuals.lsb_change_map
+            self.diagnostic_images["density"] = visuals.density_timeline
+            self.show_diagnostic(self.lsb_change_preview, visuals.lsb_change_map)
+            self.show_diagnostic(self.density_preview, visuals.density_timeline)
+            self.diagnostics_changed_samples = visuals.changed_samples
+        except _EXPECTED_FAILURES as exc:
+            self.clear_diagnostic(self.lsb_change_preview, "(diagnostic unavailable)")
+            self.clear_diagnostic(self.density_preview, "(diagnostic unavailable)")
+            self.diagnostic_images.clear()
+            self.set_status(f"Encoded successfully, but diagnostics could not be generated: {exc}")
         self.embed_result_values["LSB depth"].configure(text=str(result.lsb_depth))
         self.embed_result_values["Capacity"].configure(text=f"{result.capacity} samples")
         self.embed_result_values["Payload bytes"].configure(text=str(result.payload_bytes))
         self.embed_result_values["Carriers used"].configure(text=str(result.carriers_used))
         self.embed_result_values["Start location"].configure(text=str(result.start_location))
-        self.set_status(f"Encoded successfully: {self.stego_path.name}")
+        if self.diagnostics_changed_samples is not None:
+            self.set_status(
+                f"Encoded successfully: {self.stego_path.name} — "
+                f"{self.diagnostics_changed_samples} samples changed."
+            )
+
+    def show_diagnostic(self, label: ctk.CTkLabel, image: Image.Image) -> None:
+        preview = image.copy()
+        preview.thumbnail(_DIAGNOSTIC_SIZE)
+        photo = ctk.CTkImage(light_image=preview, dark_image=preview, size=preview.size)
+        label.configure(image=photo, text="")
+        label.image = photo
+
+    def clear_diagnostic(self, label: ctk.CTkLabel, placeholder: str) -> None:
+        label.configure(image=None, text=placeholder)
+        label.image = None
+
+    def _enable_diagnostic_popup(self, label: ctk.CTkLabel, key: str, title: str) -> None:
+        label.configure(cursor="hand2")
+        label.bind("<Button-1>", lambda _event: self.show_diagnostic_popup(key, title))
+
+    def show_diagnostic_popup(self, key: str, title: str) -> None:
+        """Open a larger, nearest-neighbour view of an in-panel diagnostic."""
+        image = self.diagnostic_images.get(key)
+        if image is None:
+            return
+
+        popup = ctk.CTkToplevel(self)
+        popup.title(title)
+        popup.geometry("1080x720")
+        popup.minsize(700, 450)
+        popup.transient(self.winfo_toplevel())
+
+        ctk.CTkLabel(popup, text=title, font=theme.heading_font(18), anchor="w").pack(
+            fill="x", padx=20, pady=(18, 4)
+        )
+        ctk.CTkLabel(
+            popup,
+            text="Full diagnostic view. Brighter regions indicate more selected-LSB activity.",
+            text_color=theme._EYEBROW_COLOR,
+            anchor="w",
+        ).pack(fill="x", padx=20, pady=(0, 12))
+
+        scale = min(_POPUP_IMAGE_SIZE[0] / image.width, _POPUP_IMAGE_SIZE[1] / image.height)
+        enlarged_size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+        enlarged = image.resize(enlarged_size, Image.Resampling.NEAREST)
+        photo = ctk.CTkImage(light_image=enlarged, dark_image=enlarged, size=enlarged.size)
+        image_label = ctk.CTkLabel(popup, image=photo, text="")
+        image_label.pack(expand=True, padx=20, pady=(0, 20))
+        image_label.image = photo
 
     def set_status(self, text: str, error: bool = False) -> None:
         self.status_label.configure(text=text, text_color=(theme.ERROR_COLOR if error else theme.NORMAL_TEXT_COLOR))

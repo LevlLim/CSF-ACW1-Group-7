@@ -240,12 +240,18 @@ A top nav bar (`gui/navigation.py`) switches between full-page views
 The **Image** page shows Embed and Extract & Verify side by side. It supports
 PNG selection, session Ed25519 key generation, selectable 1–8-bit LSB depth,
 secret-based placement, live capacity checks, embedding, extraction, signature
-verification, media-hash verification, and verdict display.
+verification, media-hash verification, and verdict display. After embedding it
+also renders an exact LSB-change map and a relative embedding-density heat
+map. The first shows precisely which selected low bits changed; the second
+counts changed pixels before grouping them into an easy-to-read overview, so
+sparse one-bit changes do not disappear.
 
 The **Audio** page mirrors this layout for WAV workflows. Its encoder provides
 WAV information, capacity feedback, session-key generation, embedding, and
-cover/stego playback; its verification panel collects the shared verification
-context and presents result fields consistently with the image page.
+cover/stego playback. After embedding, it also displays a selected-LSB change
+map and an embedding-density timeline; its verification panel collects the
+shared verification context and presents result fields consistently with the
+image page.
 
 The supporting assessment material remains in real files rather than duplicate
 GUI pages: `docs/TEST_MATRIX.md` defines test cases, `docs/INNOVATION.md`
