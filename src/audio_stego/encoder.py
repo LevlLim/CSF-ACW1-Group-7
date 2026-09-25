@@ -90,7 +90,6 @@ def embed_lsb(
     return tuple(output)
 
 def create_signed_audio_payload(
-
     wav,
     media_id: str,
     private_key_pem: bytes,

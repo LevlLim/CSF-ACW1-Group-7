@@ -186,6 +186,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
 
         self.cover_path = path
         self.clear_encoding_output()
+        self.media_id_entry.delete(0, "end")
+        self.media_id_entry.insert(0, self.default_media_id())
         self.show_image(self.cover_preview, preview)
         self.set_status(f"Cover PNG selected: {path.name}")
         self.refresh_capacity()
