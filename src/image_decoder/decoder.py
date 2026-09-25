@@ -4,17 +4,15 @@ TEAM CONVENTION for media_hash (was an open question, now resolved):
     ``VerificationPayload.media_hash`` must be reproducible from the STEGO
     file alone, since per the spec's own demo scenario Party B only ever
     receives the stego file (never the original cover). The convention used
-    here, see ``_masked_media_bytes`` below, masks out the low
+    here uses ``image_encoder.stable_image_hash`` to mask out the low
     ``lsb_depth`` bits of every RGB channel before hashing, since those are
-    exactly the bits LSB embedding is allowed to touch. Whoever calls
-    ``build_payload()`` on the encode side MUST hash the cover the same way
-    (mask out the low ``lsb_depth`` bits of every RGB channel, then
-    ``crypto_payload.sha256_hex``) to produce the ``media_hash`` argument,
-    so encode and decode agree.
+    exactly the bits LSB embedding is allowed to touch. The encoder and
+    decoder call that same helper so their hash representations cannot drift.
 """
 
 from __future__ import annotations
 
+import hmac
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,7 +23,6 @@ from crypto_payload import (
     SerializationFormatError,
     Verdict,
     VerificationPayload,
-    media_hash_matches,
     parse_and_verify,
     verdict_for_error,
 )
@@ -33,12 +30,22 @@ from image_encoder import (
     FRAME_MAGIC,
     HEADER_MAGIC,
     header_length_bytes,
+    image_capacity_bits,
     resolve_header_start_channel,
     resolve_payload_start_channel,
+    stable_image_hash,
 )
 
 _RGB_CHANNELS = 3
 _LENGTH_BYTES = 4
+
+
+class LocatorNotFoundError(SerializationFormatError):
+    """Raised when the selected decoder settings cannot locate a payload."""
+
+
+class PayloadFrameError(SerializationFormatError):
+    """Raised when a locator exists but its payload frame is malformed."""
 
 
 def _channel_position(channel_index: int, width: int) -> tuple[int, int, int]:
@@ -119,10 +126,12 @@ def _decode_and_verify(
     header_bytes = _extract_bytes(pixels, width, header_start, header_bit_len, lsb_depth)
 
     if header_bytes[: len(HEADER_MAGIC)] != HEADER_MAGIC:
-        raise SerializationFormatError("locator header magic mismatch — no payload found")
+        raise LocatorNotFoundError("locator header magic mismatch - no payload found")
     framed_length = int.from_bytes(header_bytes[len(HEADER_MAGIC):], "big")
     if framed_length <= 0:
-        raise SerializationFormatError("declared framed payload length is not positive")
+        raise PayloadFrameError("declared framed payload length is not positive")
+    if (header_length_bytes() + framed_length) * 8 > image_capacity_bits(width, height, lsb_depth):
+        raise PayloadFrameError("declared payload length exceeds image capacity")
 
     # --- 2. locate + read the framed, signed payload ---
     start_channel = resolve_payload_start_channel(
@@ -131,46 +140,22 @@ def _decode_and_verify(
     framed_bytes = _extract_bytes(pixels, width, start_channel, framed_length * 8, lsb_depth)
 
     if framed_bytes[: len(FRAME_MAGIC)] != FRAME_MAGIC:
-        raise SerializationFormatError("frame magic mismatch — payload is corrupted or absent")
+        raise PayloadFrameError("frame magic mismatch - payload is corrupted or absent")
     declared_len = int.from_bytes(
         framed_bytes[len(FRAME_MAGIC): len(FRAME_MAGIC) + _LENGTH_BYTES], "big"
     )
     envelope_bytes = framed_bytes[len(FRAME_MAGIC) + _LENGTH_BYTES:]
     if len(envelope_bytes) != declared_len:
-        raise SerializationFormatError("truncated or malformed payload envelope")
+        raise PayloadFrameError("truncated or malformed payload envelope")
 
     # --- 3. verify signature and parse payload (Person 5) ---
     payload = parse_and_verify(envelope_bytes, public_key_pem)
 
-    # --- 4. FR9: recompute media hash and compare (shared convention with
-    #     whoever calls build_payload on the encode side — see
-    #     _masked_media_bytes below, and this module's docstring)
-    media_bytes = _masked_media_bytes(pixels, width, height, lsb_depth)
-    hash_matches = media_hash_matches(media_bytes, payload.media_hash)
+    # --- 4. FR9: recompute the same stable hash used by the encoder.
+    actual_hash = stable_image_hash(stego_path, lsb_depth).hex()
+    hash_matches = hmac.compare_digest(actual_hash, payload.media_hash)
 
     return payload, hash_matches
-
-
-def _masked_media_bytes(pixels, width: int, height: int, lsb_depth: int) -> bytes:
-    """Reproducible 'cover fingerprint' from the stego file alone.
-
-    Masks out the low ``lsb_depth`` bits of every RGB channel (the bits
-    LSB embedding is allowed to touch) before hashing, so a caller who
-    hashed the cover the same way BEFORE embedding gets a matching value
-    on an untampered file. See the module docstring for the full rationale
-    — whoever calls build_payload() on the encode side must use this same
-    masking convention.
-    """
-    keep_mask = (0xFF << lsb_depth) & 0xFF
-    buf = bytearray(width * height * _RGB_CHANNELS)
-    i = 0
-    for y in range(height):
-        for x in range(width):
-            pixel = pixels[x, y]
-            for channel in range(_RGB_CHANNELS):
-                buf[i] = pixel[channel] & keep_mask
-                i += 1
-    return bytes(buf)  # media_hash_matches() hashes this itself — don't hash twice
 
 
 def _extract_bytes(pixels, width: int, start_channel: int, num_bits: int, lsb_depth: int) -> bytes:

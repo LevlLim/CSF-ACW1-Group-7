@@ -55,7 +55,9 @@ def file_picker_row(
         # A callback can reject a file after inspecting its real contents
         # (rather than trusting its extension).  Do not display a rejected
         # path as though it were the active cover object.
-        if on_selected(selected) is not False:
+        if on_selected(selected) is False:
+            path_label.configure(text="(none selected)")
+        else:
             path_label.configure(text=selected.name)
 
     ctk.CTkButton(master, text="Browse...", command=browse).grid(row=row, column=2, padx=12, pady=6)

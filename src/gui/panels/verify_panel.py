@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import customtkinter as ctk
+from PIL import Image
 
-from crypto_payload import CryptoPayloadError, Verdict
-from image_decoder import ImageDecodeResult
+from crypto_payload import CryptoPayloadError, KeyMaterialError, SignatureInvalidError, Verdict
+from image_decoder import ImageDecodeResult, LocatorNotFoundError, PayloadFrameError
 from workflows import image_workflow
 
 from .. import theme
@@ -97,6 +98,7 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
             content, "Results", ["Signature", "Hash match", "Start location", "Details"]
         )
         self.results_card.grid(row=row, column=0, sticky="ew")
+        self.result_values["Details"].configure(wraplength=560, justify="right")
 
     def build_settings(self, master: ctk.CTkFrame) -> None:
         ctk.CTkLabel(master, text="Media ID").grid(row=0, column=0, sticky="w", pady=6)
@@ -117,10 +119,24 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
         theme.style_textbox_selection(self.public_key_box)
         self.public_key_box.grid(row=4, column=0, columnspan=2, sticky="ew")
 
-    def on_stego_selected(self, path: Path) -> None:
+    def on_stego_selected(self, path: Path) -> bool:
+        self.clear_result()
+        try:
+            with Image.open(path) as source:
+                if source.format != "PNG":
+                    raise ValueError("only PNG stego images are supported")
+                source.verify()
+        except (OSError, ValueError) as exc:
+            self.verify_stego_path = None
+            self.set_status(f"Stego image rejected: select a valid PNG image ({exc}).", error=True)
+            return False
+
         self.verify_stego_path = path
+        self.set_status(f"Stego PNG selected: {path.name}")
+        return True
 
     def on_verify(self) -> None:
+        self.clear_result()
         if self.verify_stego_path is None:
             self.set_status("Select a stego PNG first.", error=True)
             return
@@ -136,12 +152,17 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
         if not public_key_text:
             self.set_status("Paste the signer's public key.", error=True)
             return
-        public_key_pem = _normalize_public_key_pem(public_key_text)
         depth = int(self.lsb_depth_selector.get())
 
         try:
+            public_key_pem = _normalize_public_key_pem(public_key_text)
             result = image_workflow.decode_image(self.verify_stego_path, depth, secret, media_id, public_key_pem)
         except _EXPECTED_FAILURES as exc:
+            if isinstance(exc, UnicodeError):
+                theme.set_verdict_banner(
+                    self.verdict_frame, self.verdict_label, "Cannot Verify: Invalid Public Key", "error"
+                )
+                self.result_values["Details"].configure(text="Public key must be valid ASCII PEM text.")
             self.set_status(f"Verification failed: {exc}", error=True)
             return
 
@@ -153,18 +174,55 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
         payload = result.payload
         error = result.error
 
-        if verdict == Verdict.AUTHENTIC:
-            theme.set_verdict_banner(self.verdict_frame, self.verdict_label, f"✓  {verdict}", "success")
-        else:
-            theme.set_verdict_banner(self.verdict_frame, self.verdict_label, f"✕  {verdict}", "error")
+        banner = str(verdict)
+        if isinstance(error, KeyMaterialError):
+            banner = f"{verdict}: Invalid Public Key"
+        elif isinstance(error, LocatorNotFoundError):
+            banner = "Payload Not Found"
+        elif isinstance(error, PayloadFrameError):
+            banner = "Payload Corrupted"
+        theme.set_verdict_banner(
+            self.verdict_frame,
+            self.verdict_label,
+            f"✓  {banner}" if verdict == Verdict.AUTHENTIC else f"✕  {banner}",
+            "success" if verdict == Verdict.AUTHENTIC else "error",
+        )
 
         self.message_display.configure(text=(payload.metadata.get("note", "") or "(none)") if payload else "–")
-        self.result_values["Signature"].configure(text="Valid" if payload is not None else "–")
+        signature = "Invalid" if isinstance(error, SignatureInvalidError) else ("Valid" if payload is not None else "–")
+        self.result_values["Signature"].configure(text=signature)
         self.result_values["Hash match"].configure(
             text="Yes" if verdict == Verdict.AUTHENTIC else ("No" if verdict == Verdict.TAMPERED else "–")
         )
-        self.result_values["Start location"].configure(text="Found" if payload is not None else "–")
-        self.result_values["Details"].configure(text=str(error) if error else "OK")
+        location_found = payload is not None or isinstance(
+            error, (KeyMaterialError, PayloadFrameError, SignatureInvalidError)
+        )
+        self.result_values["Start location"].configure(text="Found" if location_found else "–")
+        self.result_values["Details"].configure(text=self.result_detail(result))
+
+    def clear_result(self) -> None:
+        theme.set_verdict_banner(self.verdict_frame, self.verdict_label, "Awaiting Verification", "pending")
+        self.message_display.configure(text="–")
+        for value in self.result_values.values():
+            value.configure(text="–")
+
+    @staticmethod
+    def result_detail(result: ImageDecodeResult) -> str:
+        error = result.error
+        if isinstance(error, KeyMaterialError):
+            return "Invalid public key. Paste the public key generated during encoding."
+        if isinstance(error, LocatorNotFoundError):
+            return (
+                "Payload not found. Check the Media ID, LSB depth and start-location secret, "
+                "or confirm that this image contains a payload."
+            )
+        if isinstance(error, PayloadFrameError):
+            return "The payload was found but is incomplete or corrupted."
+        if isinstance(error, SignatureInvalidError):
+            return "The payload signature is invalid or the public key does not match."
+        if result.verdict == Verdict.TAMPERED:
+            return "The signature is valid, but the image hash does not match."
+        return str(error) if error else "OK"
 
     def set_status(self, text: str, error: bool = False) -> None:
         self.status_label.configure(text=text, text_color=(theme.ERROR_COLOR if error else theme.NORMAL_TEXT_COLOR))

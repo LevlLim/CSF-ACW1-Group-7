@@ -5,7 +5,6 @@ No GUI toolkit here, so the GUI, a demo script, or tests can all call it the sam
 
 from __future__ import annotations
 
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,9 +19,8 @@ from image_encoder import (
     frame_payload,
     header_length_bytes,
     image_capacity_bits,
+    stable_image_hash,
 )
-
-_RGB_CHANNELS = 3
 
 
 class CapacityStatus:
@@ -52,33 +50,10 @@ def build_signed_envelope(cover_path: Path, media_id: str, note: str, private_ke
     the bits embedding is allowed to touch — matching the convention
     `image_decoder.decode_image_file` expects on the other side.
     """
-    media_hash = _masked_cover_hash(cover_path, lsb_depth)
+    media_hash = stable_image_hash(cover_path, lsb_depth)
     metadata = {"note": note} if note else {}
     payload = build_payload(media_id, media_hash, metadata, datetime.now(UTC))
     return sign_payload(payload, private_key_pem)
-
-
-def _masked_cover_hash(cover_path: Path, lsb_depth: int) -> bytes:
-    """SHA-256 of the cover with the low `lsb_depth` bits masked out of every
-    RGB channel. Must match image_decoder's masking exactly, or a genuine,
-    untouched round trip would incorrectly come back as Tampered.
-    """
-    keep_mask = (0xFF << lsb_depth) & 0xFF
-    with Image.open(cover_path) as source:
-        image = source.convert("RGB")
-        width, height = image.size
-        pixels = image.load()
-        assert pixels is not None, "a just-opened, just-converted image always has pixel data"
-        buf = bytearray(width * height * _RGB_CHANNELS)
-        i = 0
-        for y in range(height):
-            for x in range(width):
-                pixel = pixels[x, y]
-                assert isinstance(pixel, tuple), "RGB-mode images always yield an (R, G, B) tuple per pixel"
-                for channel in range(_RGB_CHANNELS):
-                    buf[i] = pixel[channel] & keep_mask
-                    i += 1
-    return hashlib.sha256(bytes(buf)).digest()
 
 
 def check_image_capacity(cover_path: Path, envelope: bytes, lsb_depth: int) -> CapacityStatus:

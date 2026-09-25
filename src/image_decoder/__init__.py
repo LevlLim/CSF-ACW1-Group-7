@@ -2,10 +2,14 @@
 
 from .decoder import (
     ImageDecodeResult,
+    LocatorNotFoundError,
+    PayloadFrameError,
     decode_image_file,
 )
 
 __all__ = [
     "ImageDecodeResult",
+    "LocatorNotFoundError",
+    "PayloadFrameError",
     "decode_image_file",
 ]

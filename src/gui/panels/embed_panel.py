@@ -44,6 +44,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.stego_path: Path | None = None
         self.diagnostics_changed_channels: int | None = None
         self.diagnostic_images: dict[str, Image.Image] = {}
+        blank = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+        self._blank_preview_image = ctk.CTkImage(light_image=blank, dark_image=blank, size=(1, 1))
 
         self.grid_columnconfigure(0, weight=1)
 
@@ -176,26 +178,29 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
                 preview = source.copy()
         except (OSError, ValueError) as exc:
             self.cover_path = None
-            self.stego_path = None
-            self.diagnostic_images.clear()
+            self.clear_encoding_output()
             self.clear_preview(self.cover_preview, "(no valid PNG selected)")
-            self.clear_preview(self.stego_preview, "(not yet encoded)")
-            self.clear_preview(self.bit_plane_preview, "(generated after embedding)")
-            self.clear_preview(self.heat_map_preview, "(generated after embedding)")
             self.refresh_capacity()
             self.set_status(f"Cover rejected: select a valid PNG image ({exc}).", error=True)
             return False
 
         self.cover_path = path
-        self.stego_path = None
-        self.diagnostic_images.clear()
+        self.clear_encoding_output()
         self.show_image(self.cover_preview, preview)
-        self.clear_preview(self.stego_preview, "(not yet encoded)")
-        self.clear_preview(self.bit_plane_preview, "(generated after embedding)")
-        self.clear_preview(self.heat_map_preview, "(generated after embedding)")
         self.set_status(f"Cover PNG selected: {path.name}")
         self.refresh_capacity()
         return True
+
+    def clear_encoding_output(self) -> None:
+        """Clear results tied to the previously selected cover image."""
+        self.stego_path = None
+        self.diagnostics_changed_channels = None
+        self.diagnostic_images.clear()
+        self.clear_preview(self.stego_preview, "(not yet encoded)")
+        self.clear_preview(self.bit_plane_preview, "(generated after embedding)")
+        self.clear_preview(self.heat_map_preview, "(generated after embedding)")
+        for value in self.embed_result_values.values():
+            value.configure(text="–")
 
     def on_generate_keypair(self) -> None:
         self.private_key_pem, self.public_key_pem = generate_ed25519_keypair()
@@ -272,12 +277,15 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
             if not stego_path:
                 return
 
-            result = image_workflow.encode_image(self.cover_path, stego_path, envelope, depth, secret, media_id)
+            output_path = Path(stego_path)
+            if output_path.suffix.lower() != ".png":
+                output_path = output_path.with_suffix(".png")
+            result = image_workflow.encode_image(self.cover_path, output_path, envelope, depth, secret, media_id)
         except _EXPECTED_FAILURES as exc:
             self.set_status(f"Encoding failed: {exc}", error=True)
             return
 
-        self.stego_path = Path(stego_path)
+        self.stego_path = output_path
         self.show_preview(self.stego_preview, self.stego_path)
         self.diagnostics_changed_channels = None
         try:
@@ -317,8 +325,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         label.image = photo  # keep a reference alive; CTkLabel does not retain one
 
     def clear_preview(self, label: ctk.CTkLabel, placeholder: str) -> None:
-        label.configure(image=None, text=placeholder)
-        label.image = None
+        label.configure(image=self._blank_preview_image, text=placeholder)
+        label.image = self._blank_preview_image
 
     def _enable_diagnostic_popup(self, label: ctk.CTkLabel, key: str, title: str) -> None:
         label.configure(cursor="hand2")

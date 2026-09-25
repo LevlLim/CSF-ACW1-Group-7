@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from crypto_payload import Verdict, build_payload, generate_ed25519_keypair, sha256_hex, sign_payload
-from image_encoder import encode_image_file
+from crypto_payload import Verdict, build_payload, generate_ed25519_keypair, sign_payload
+from image_encoder import encode_image_file, stable_image_hash
 from image_decoder import decode_image_file
 
 LSB_DEPTH = 2
@@ -37,14 +37,8 @@ def make_cover(path, size=(256, 256)):
 
 
 def cover_media_hash(cover_path: str, lsb_depth: int) -> bytes:
-    """Same masking convention decoder.py's _masked_media_bytes uses —
-    mask out the low lsb_depth bits of every RGB channel before hashing,
-    so the value is reproducible from the stego file alone later."""
-    img = Image.open(cover_path).convert("RGB")
-    arr = np.array(img)
-    keep_mask = (0xFF << lsb_depth) & 0xFF
-    masked = (arr.astype(np.uint8) & keep_mask).tobytes()
-    return bytes.fromhex(sha256_hex(masked))
+    """Use the same stable image representation as the application workflow."""
+    return stable_image_hash(cover_path, lsb_depth)
 
 
 def build_and_encode(cover_path, stego_path, message, priv_pem, lsb_depth=LSB_DEPTH, secret=SECRET):

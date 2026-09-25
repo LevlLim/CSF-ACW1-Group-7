@@ -63,8 +63,7 @@ from image_encoder import (
 - `stable_image_hash(image_path, lsb_depth)` returns a raw 32-byte digest of a
   normalised RGB representation after zeroing the selected LSB bits. It is a
   stable image-encoder helper: cover and stego digests match after embedding,
-  and alpha is ignored. The active GUI image workflow uses its own matching
-  masked-RGB hash convention on both the encode and decode paths.
+  and alpha is ignored. Both image workflow paths call this same helper.
 - Embedding uses row-major RGB channel slots: pixel `(0, 0)` red, green, blue,
   then pixel `(1, 0)`, and so on. Alpha is preserved and never used.
 - The embedded frame is `b"CSFIMG1"` + 4-byte big-endian payload length +

@@ -18,7 +18,15 @@ from pathlib import Path
 
 from PIL import Image
 
-from crypto_payload import Verdict, build_payload, generate_ed25519_keypair, sign_payload
+from crypto_payload import (
+    KeyMaterialError,
+    SignatureInvalidError,
+    Verdict,
+    build_payload,
+    generate_ed25519_keypair,
+    sign_payload,
+)
+from image_decoder import LocatorNotFoundError
 from workflows import image_workflow
 from workflows.verification import verify_extracted_payload
 
@@ -168,6 +176,85 @@ class ImageWorkflowTests(unittest.TestCase):
 
         self.assertNotEqual(result.verdict, Verdict.AUTHENTIC)
         self.assertIsNone(result.payload)
+        self.assertIsInstance(result.error, LocatorNotFoundError)
+
+    def test_wrong_lsb_depth_reports_locator_not_found(self) -> None:
+        private_pem, public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_png(tmp_dir)
+            stego = tmp_dir / "stego.png"
+            envelope = image_workflow.build_signed_envelope(cover, "img-008", "hello", private_pem, lsb_depth=2)
+            image_workflow.encode_image(cover, stego, envelope, 2, b"a-secret", "img-008")
+
+            result = image_workflow.decode_image(stego, 1, b"a-secret", "img-008", public_pem)
+
+        self.assertEqual(result.verdict, Verdict.PAYLOAD_MISSING)
+        self.assertIsInstance(result.error, LocatorNotFoundError)
+
+    def test_invalid_public_key_has_specific_error(self) -> None:
+        private_pem, _public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_png(tmp_dir)
+            stego = tmp_dir / "stego.png"
+            envelope = image_workflow.build_signed_envelope(cover, "img-009", "hello", private_pem, lsb_depth=2)
+            image_workflow.encode_image(cover, stego, envelope, 2, b"a-secret", "img-009")
+
+            result = image_workflow.decode_image(stego, 2, b"a-secret", "img-009", b"invalid key")
+
+        self.assertEqual(result.verdict, Verdict.CANNOT_VERIFY)
+        self.assertIsInstance(result.error, KeyMaterialError)
+
+    def test_missing_payload_reports_locator_not_found(self) -> None:
+        _private_pem, public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cover = _make_cover_png(Path(tmp))
+            result = image_workflow.decode_image(cover, 2, b"a-secret", "img-010", public_pem)
+
+        self.assertEqual(result.verdict, Verdict.PAYLOAD_MISSING)
+        self.assertIsInstance(result.error, LocatorNotFoundError)
+
+    def test_wrong_valid_public_key_reports_signature_invalid(self) -> None:
+        private_pem, _public_pem = generate_ed25519_keypair()
+        _other_private_pem, other_public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_png(tmp_dir)
+            stego = tmp_dir / "stego.png"
+            envelope = image_workflow.build_signed_envelope(cover, "img-011", "hello", private_pem, lsb_depth=2)
+            image_workflow.encode_image(cover, stego, envelope, 2, b"a-secret", "img-011")
+
+            result = image_workflow.decode_image(stego, 2, b"a-secret", "img-011", other_public_pem)
+
+        self.assertEqual(result.verdict, Verdict.SIGNATURE_INVALID)
+        self.assertIsInstance(result.error, SignatureInvalidError)
+
+    def test_changed_high_image_bit_reports_tampered(self) -> None:
+        private_pem, public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_png(tmp_dir)
+            stego = tmp_dir / "stego.png"
+            tampered = tmp_dir / "tampered.png"
+            envelope = image_workflow.build_signed_envelope(cover, "img-012", "hello", private_pem, lsb_depth=2)
+            image_workflow.encode_image(cover, stego, envelope, 2, b"a-secret", "img-012")
+
+            with Image.open(stego) as source:
+                changed = source.convert("RGB")
+            red, green, blue = changed.getpixel((0, 0))
+            changed.putpixel((0, 0), (red ^ 0x80, green, blue))
+            changed.save(tampered, format="PNG")
+
+            result = image_workflow.decode_image(tampered, 2, b"a-secret", "img-012", public_pem)
+
+        self.assertEqual(result.verdict, Verdict.TAMPERED)
+        self.assertIsNone(result.error)
 
 
 class VerificationWorkflowTests(unittest.TestCase):

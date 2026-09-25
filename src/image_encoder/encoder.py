@@ -14,7 +14,6 @@ from crypto_payload import derive_start_location
 
 FRAME_MAGIC = b"CSFIMG1"
 HEADER_MAGIC = b"CSFHDR1"
-_HASH_DOMAIN = b"CSFIMGHASH1"
 _LENGTH_BYTES = 4
 _RGB_CHANNELS = 3
 
@@ -72,10 +71,6 @@ def stable_image_hash(image_path: str | Path, lsb_depth: int) -> bytes:
 
     keep_mask = 0xFF & ~((1 << lsb_depth) - 1)
     digest = hashlib.sha256()
-    digest.update(_HASH_DOMAIN)
-    digest.update(image.width.to_bytes(4, "big"))
-    digest.update(image.height.to_bytes(4, "big"))
-    digest.update(bytes([lsb_depth]))
 
     pixels = image.load()
     for y in range(image.height):
