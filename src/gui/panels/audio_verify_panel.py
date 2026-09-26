@@ -109,7 +109,7 @@ class AudioVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
         row += 1
 
         self.results_card, self.result_values = theme.kv_rows(
-            content, "Results", ["Signature", "Hash match", "Start location", "Details"]
+            content, "Results", ["Signature", "Payload protection", "Hash match", "Start location", "Details"]
         )
         self.results_card.grid(row=row, column=0, sticky="ew")
 
@@ -187,6 +187,9 @@ class AudioVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
 
         self.message_display.configure(text=(payload.metadata.get("note", "") or "(none)") if payload else "–")
         self.result_values["Signature"].configure(text="Valid" if payload is not None else "–")
+        self.result_values["Payload protection"].configure(
+            text=("AES-256-GCM" if payload.metadata.get("payload_encrypted") else "Signed only") if payload else "–"
+        )
         self.result_values["Hash match"].configure(
             text="Yes" if verdict == Verdict.AUTHENTIC else ("No" if verdict == Verdict.TAMPERED else "–")
         )

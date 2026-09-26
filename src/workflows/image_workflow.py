@@ -10,7 +10,13 @@ from pathlib import Path
 
 from PIL import Image
 
-from crypto_payload import MESSAGE_HASH_METADATA_KEY, build_payload, message_hash_hex, sign_payload
+from crypto_payload import (
+    MESSAGE_HASH_METADATA_KEY,
+    build_payload,
+    message_hash_hex,
+    protect_signed_envelope,
+    sign_payload,
+)
 from image_decoder import ImageDecodeResult, decode_image_file
 from image_encoder import (
     ImageEncodeResult,
@@ -48,6 +54,8 @@ def build_signed_envelope(
     private_key_pem: bytes,
     lsb_depth: int,
     start_pixel: tuple[int, int] | None = None,
+    encrypt_payload: bool = False,
+    start_secret: bytes = b"",
 ) -> bytes:
     """Hash the cover file, build the FR3 payload, and sign it (FR4).
 
@@ -58,11 +66,19 @@ def build_signed_envelope(
     `image_decoder.decode_image_file` expects on the other side.
     """
     media_hash = stable_image_hash(cover_path, lsb_depth)
-    metadata = {"note": note, MESSAGE_HASH_METADATA_KEY: message_hash_hex(note)}
+    metadata = {
+        "note": note,
+        MESSAGE_HASH_METADATA_KEY: message_hash_hex(note),
+    }
+    if encrypt_payload:
+        metadata["payload_encrypted"] = True
     if start_pixel is not None:
         metadata["start_pixel"] = list(start_pixel)
     payload = build_payload(media_id, media_hash, metadata, datetime.now(UTC))
-    return sign_payload(payload, private_key_pem)
+    envelope = sign_payload(payload, private_key_pem)
+    if encrypt_payload:
+        envelope = protect_signed_envelope(envelope, start_secret, media_id, "image")
+    return envelope
 
 
 def check_image_capacity(cover_path: Path, envelope: bytes, lsb_depth: int) -> CapacityStatus:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import struct
 from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
@@ -63,8 +64,8 @@ def stable_image_hash(image_path: str | Path, lsb_depth: int) -> bytes:
     """Hash image pixels after zeroing the LSBs used for embedding.
 
     The digest is stable between the original cover PNG and the encoded stego
-    PNG because payload bits are removed before hashing. RGB channels are
-    hashed; alpha is ignored.
+    PNG because payload bits are removed before hashing. Dimensions, mode and
+    unmodified alpha values are included so visible structural edits are caught.
     """
     _validate_lsb_depth(lsb_depth)
     with Image.open(image_path) as source:
@@ -74,12 +75,16 @@ def stable_image_hash(image_path: str | Path, lsb_depth: int) -> bytes:
 
     keep_mask = 0xFF & ~((1 << lsb_depth) - 1)
     digest = hashlib.sha256()
+    digest.update(b"CSF7-IMAGE-HASH-V2\x00")
+    digest.update(struct.pack(">II", image.width, image.height))
+    digest.update(image.mode.encode("ascii") + b"\x00")
 
     pixels = image.load()
     for y in range(image.height):
         for x in range(image.width):
-            red, green, blue = pixels[x, y][:3]
-            digest.update(bytes((red & keep_mask, green & keep_mask, blue & keep_mask)))
+            pixel = pixels[x, y]
+            red, green, blue = pixel[:3]
+            digest.update(bytes((red & keep_mask, green & keep_mask, blue & keep_mask, *pixel[3:])))
     return digest.digest()
 
 

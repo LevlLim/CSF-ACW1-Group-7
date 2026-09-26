@@ -5,6 +5,7 @@ from pathlib import Path
 
 from crypto_payload import (
     build_payload,
+    protect_signed_envelope,
     sign_payload,
 )
 
@@ -95,6 +96,8 @@ def create_signed_audio_payload(
     private_key_pem: bytes,
     lsb_depth: int,
     note: str = "",
+    encrypt_payload: bool = False,
+    start_secret: bytes = b"",
 ) -> bytes:
     """
     Create and digitally sign the verification payload
@@ -117,6 +120,8 @@ def create_signed_audio_payload(
         "cover_type": "audio",
         "lsb_depth": lsb_depth,
     }
+    if encrypt_payload:
+        metadata["payload_encrypted"] = True
     if note:
         metadata["note"] = note
 
@@ -131,6 +136,10 @@ def create_signed_audio_payload(
         private_key_pem,
     )
 
+    if encrypt_payload:
+        signed_envelope = protect_signed_envelope(
+            signed_envelope, start_secret, media_id, "audio"
+        )
     return signed_envelope
 
 def encode_audio_file(
@@ -141,6 +150,7 @@ def encode_audio_file(
     start_secret: bytes,
     lsb_depth: int,
     note: str = "",
+    encrypt_payload: bool = False,
 ) -> AudioEncodeResult:
     """
     Complete audio encoding workflow.
@@ -162,6 +172,8 @@ def encode_audio_file(
             private_key_pem=private_key_pem,
             lsb_depth=lsb_depth,
             note=note,
+            encrypt_payload=encrypt_payload,
+            start_secret=start_secret,
         )
     )
     # 3. Add audio framing

@@ -135,23 +135,32 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         ctk.CTkLabel(master, text="Start-location secret").grid(row=4, column=0, sticky="w", pady=6)
         self.secret_entry = ctk.CTkEntry(master, show="*")
         self.secret_entry.grid(row=4, column=1, sticky="ew", padx=(6, 0), pady=6)
+        self.secret_entry.bind("<KeyRelease>", lambda _event: self.refresh_capacity())
 
         ctk.CTkLabel(master, text="Selected start pixel").grid(row=5, column=0, sticky="w", pady=6)
         self.start_pixel_value = ctk.CTkLabel(master, text="Click the cover preview", anchor="w")
         self.start_pixel_value.grid(row=5, column=1, sticky="ew", padx=(6, 0), pady=6)
 
+        self.encrypt_payload_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            master,
+            text="Encrypt custom payload (AES-256-GCM)",
+            variable=self.encrypt_payload_var,
+            command=self.refresh_capacity,
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=6)
+
         ctk.CTkButton(master, text="Generate Signing Keypair", command=self.on_generate_keypair).grid(
-            row=6, column=0, columnspan=2, sticky="ew", pady=(10, 6)
+            row=7, column=0, columnspan=2, sticky="ew", pady=(10, 6)
         )
         key_label_row = ctk.CTkFrame(master, fg_color="transparent")
-        key_label_row.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(6, 2))
+        key_label_row.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(6, 2))
         key_label_row.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(key_label_row, text="Public key (share with verifier)", anchor="w").grid(row=0, column=0, sticky="w")
         ctk.CTkButton(key_label_row, text="Copy", width=56, command=self.on_copy_public_key).grid(row=0, column=1, sticky="e")
 
         self.public_key_box = ctk.CTkTextbox(master, height=70, font=theme.mono_font())
         theme.style_textbox_selection(self.public_key_box)
-        self.public_key_box.grid(row=8, column=0, columnspan=2, sticky="ew")
+        self.public_key_box.grid(row=9, column=0, columnspan=2, sticky="ew")
         self.public_key_box.configure(state="disabled")
 
     def on_message_changed(self) -> None:
@@ -295,6 +304,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
                 self.private_key_pem,
                 depth,
                 start_pixel=self.selected_start_pixel,
+                encrypt_payload=self.encrypt_payload_var.get(),
+                start_secret=self.secret_entry.get().encode("utf-8"),
             )
             status = image_workflow.check_image_capacity(self.cover_path, envelope, depth)
         except _EXPECTED_FAILURES as exc:
@@ -337,6 +348,8 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
                 self.private_key_pem,
                 depth,
                 start_pixel=self.selected_start_pixel,
+                encrypt_payload=self.encrypt_payload_var.get(),
+                start_secret=secret,
             )
             status = image_workflow.check_image_capacity(self.cover_path, envelope, depth)
             if not status.fits:
@@ -392,8 +405,9 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.embed_result_values["Changed pixels"].configure(text=str(result.changed_pixels))
         self.embed_result_values["Start pixel"].configure(text=str(result.start_pixel))
         if self.diagnostics_changed_channels is not None:
+            protection = "encrypted and signed" if self.encrypt_payload_var.get() else "signed"
             self.set_status(
-                f"Encoded successfully: {self.stego_path.name} — "
+                f"Encoded {protection} payload successfully: {self.stego_path.name} — "
                 f"{self.diagnostics_changed_channels} RGB channels changed."
             )
 

@@ -11,7 +11,9 @@ from .core import (
     generate_ed25519_keypair,
     media_hash_matches,
     message_hash_hex,
+    open_signed_envelope,
     parse_and_verify,
+    protect_signed_envelope,
     sha256_hex,
     sign_payload,
     verdict_for_error,
@@ -32,5 +34,5 @@ __all__ = [
     "StartLocationError", "Verdict", "VerificationPayload", "build_payload",
     "decrypt_bytes", "derive_start_location", "encrypt_bytes",
     "generate_ed25519_keypair", "media_hash_matches", "message_hash_hex", "parse_and_verify",
-    "sha256_hex", "sign_payload", "verdict_for_error",
+    "open_signed_envelope", "protect_signed_envelope", "sha256_hex", "sign_payload", "verdict_for_error",
 ]

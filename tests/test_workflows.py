@@ -14,10 +14,14 @@ from __future__ import annotations
 import hashlib
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
 
+from audio_decoder import decode_audio_file
+from audio_stego import WavData, encode_audio_file
+from audio_stego.common import load_wav_pcm, save_wav_pcm
 from crypto_payload import (
     MESSAGE_HASH_METADATA_KEY,
     KeyMaterialError,
@@ -45,6 +49,19 @@ def _make_cover_png(directory: Path) -> Path:
         (100, 150, 200, 255),
     ).save(cover)
 
+    return cover
+
+
+def _make_cover_wav(directory: Path) -> Path:
+    cover = directory / "cover.wav"
+    wav = WavData(
+        samples=tuple([1000] * 100_000),
+        channels=1,
+        sample_width=2,
+        frame_rate=44_100,
+        frame_count=100_000,
+    )
+    save_wav_pcm(cover, wav, wav.samples)
     return cover
 
 
@@ -166,6 +183,33 @@ class ImageWorkflowTests(unittest.TestCase):
         self.assertTrue(result.message_hash_matches)
         assert result.payload is not None
         self.assertEqual(result.payload.metadata[MESSAGE_HASH_METADATA_KEY], message_hash_hex("hello"))
+
+    def test_encrypted_payload_round_trip_is_authentic(self) -> None:
+        private_pem, public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_png(tmp_dir)
+            stego = tmp_dir / "encrypted.png"
+            envelope = image_workflow.build_signed_envelope(
+                cover,
+                "img-encrypted",
+                "confidential message",
+                private_pem,
+                lsb_depth=2,
+                encrypt_payload=True,
+                start_secret=b"shared-secret",
+            )
+            image_workflow.encode_image(
+                cover, stego, envelope, 2, b"shared-secret", "img-encrypted"
+            )
+            result = image_workflow.decode_image(
+                stego, 2, b"shared-secret", "img-encrypted", public_pem
+            )
+
+        self.assertEqual(result.verdict, Verdict.AUTHENTIC)
+        assert result.payload is not None
+        self.assertTrue(result.payload.metadata["payload_encrypted"])
 
     def test_clicked_start_pixel_is_recovered_automatically(self) -> None:
         private_pem, public_pem = generate_ed25519_keypair()
@@ -311,6 +355,82 @@ class ImageWorkflowTests(unittest.TestCase):
 
         self.assertEqual(result.verdict, Verdict.TAMPERED)
         self.assertIsNone(result.error)
+
+    def test_changed_alpha_reports_tampered(self) -> None:
+        private_pem, public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_png(tmp_dir)
+            stego = tmp_dir / "stego.png"
+            tampered = tmp_dir / "alpha-tampered.png"
+            envelope = image_workflow.build_signed_envelope(
+                cover, "img-alpha", "hello", private_pem, lsb_depth=2
+            )
+            image_workflow.encode_image(cover, stego, envelope, 2, b"a-secret", "img-alpha")
+
+            with Image.open(stego) as source:
+                changed = source.copy()
+            red, green, blue, _alpha = changed.getpixel((0, 0))
+            changed.putpixel((0, 0), (red, green, blue, 0))
+            changed.save(tampered)
+            result = image_workflow.decode_image(tampered, 2, b"a-secret", "img-alpha", public_pem)
+
+        self.assertEqual(result.verdict, Verdict.TAMPERED)
+
+
+class AudioIntegrityWorkflowTests(unittest.TestCase):
+    def test_encrypted_payload_round_trip_is_authentic(self) -> None:
+        private_pem, public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_wav(tmp_dir)
+            stego = tmp_dir / "encrypted.wav"
+            encode_audio_file(
+                cover,
+                stego,
+                "aud-encrypted",
+                private_pem,
+                b"shared-secret",
+                2,
+                "confidential message",
+                encrypt_payload=True,
+            )
+            result = decode_audio_file(
+                stego,
+                lsb_depth=2,
+                start_secret=b"shared-secret",
+                media_id="aud-encrypted",
+                public_key_pem=public_pem,
+            )
+
+        self.assertEqual(result.verdict, Verdict.AUTHENTIC)
+        assert result.payload is not None
+        self.assertTrue(result.payload.metadata["payload_encrypted"])
+
+    def test_changed_sample_rate_reports_tampered(self) -> None:
+        private_pem, public_pem = generate_ed25519_keypair()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cover = _make_cover_wav(tmp_dir)
+            stego = tmp_dir / "stego.wav"
+            tampered = tmp_dir / "rate-tampered.wav"
+            encode_audio_file(cover, stego, "aud-rate", private_pem, b"shared-secret", 2, "test")
+
+            encoded = load_wav_pcm(stego)
+            changed = replace(encoded, frame_rate=22_050)
+            save_wav_pcm(tampered, changed, changed.samples)
+            result = decode_audio_file(
+                tampered,
+                lsb_depth=2,
+                start_secret=b"shared-secret",
+                media_id="aud-rate",
+                public_key_pem=public_pem,
+            )
+
+        self.assertEqual(result.verdict, Verdict.TAMPERED)
 
 
 class VerificationWorkflowTests(unittest.TestCase):

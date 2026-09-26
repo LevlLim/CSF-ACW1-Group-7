@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import tempfile
 import unittest
 from math import ceil
@@ -114,8 +113,6 @@ class ImageEncoderTests(unittest.TestCase):
             Image.new("RGBA", (12, 12), (120, 80, 40, 77)).save(cover)
 
             cover_hash = stable_image_hash(cover, lsb_depth)
-            masked_rgb = bytes(value & 0b11111100 for _ in range(12 * 12) for value in (120, 80, 40))
-            self.assertEqual(cover_hash, hashlib.sha256(masked_rgb).digest())
             encode_image_file(
                 cover,
                 stego,
@@ -133,6 +130,10 @@ class ImageEncoderTests(unittest.TestCase):
                 changed = image.copy()
             red, green, blue, alpha = changed.getpixel((0, 0))
             changed.putpixel((0, 0), (red ^ 0b00000100, green, blue, alpha))
+            changed.save(tampered)
+            self.assertNotEqual(cover_hash, stable_image_hash(tampered, lsb_depth))
+
+            changed.putpixel((0, 0), (red, green, blue, alpha ^ 0xFF))
             changed.save(tampered)
             self.assertNotEqual(cover_hash, stable_image_hash(tampered, lsb_depth))
 

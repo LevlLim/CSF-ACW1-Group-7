@@ -34,6 +34,7 @@ MESSAGE_HASH_METADATA_KEY = "message_sha256"
 _AES_GCM_NONCE_BYTES = 12
 _AES_256_KEY_BYTES = 32
 _START_LOCATION_DOMAIN = b"INF2005-CSF-START-LOCATION-V1\x00"
+_PAYLOAD_ENCRYPTION_DOMAIN = b"INF2005-CSF-PAYLOAD-ENCRYPTION-V1\x00"
 
 
 class Verdict(StrEnum):
@@ -219,6 +220,34 @@ def decrypt_bytes(envelope_bytes: bytes, encryption_key: bytes, associated_data:
         raise PayloadIntegrityError("AES-GCM authentication failed") from exc
 
 
+def protect_signed_envelope(
+    signed_envelope: bytes,
+    secret: bytes,
+    media_id: str,
+    cover_type: str,
+) -> bytes:
+    """Encrypt a signed envelope using a key derived from shared context."""
+    context = _payload_encryption_context(media_id, cover_type)
+    key = _payload_encryption_key(secret, context)
+    return encrypt_bytes(signed_envelope, key, context)
+
+
+def open_signed_envelope(
+    envelope_bytes: bytes,
+    secret: bytes,
+    media_id: str,
+    cover_type: str,
+) -> bytes:
+    """Return signed bytes from either a plain or AES-GCM envelope."""
+    envelope = _load_json_object(envelope_bytes)
+    if set(envelope) == {"payload", "signature", "version"}:
+        return envelope_bytes
+    if set(envelope) == {"ciphertext", "nonce", "version"}:
+        context = _payload_encryption_context(media_id, cover_type)
+        return decrypt_bytes(envelope_bytes, _payload_encryption_key(secret, context), context)
+    raise SerializationFormatError("unexpected payload envelope structure")
+
+
 def derive_start_location(secret: bytes, media_id: str, cover_type: str, capacity: int, payload_length: int) -> int:
     """Derive a deterministic, secret-bound legal LSB start offset.
 
@@ -238,6 +267,18 @@ def derive_start_location(secret: bytes, media_id: str, cover_type: str, capacit
     context = f"{media_id}\x00{cover_type}\x00{capacity}\x00{payload_length}".encode("utf-8")
     value = int.from_bytes(hmac.digest(secret, _START_LOCATION_DOMAIN + context, "sha256"), "big")
     return value % available_starts
+
+
+def _payload_encryption_context(media_id: str, cover_type: str) -> bytes:
+    if not media_id or cover_type not in {"image", "audio"}:
+        raise PayloadValidationError("media_id and supported cover_type are required")
+    return f"{cover_type}\x00{media_id}".encode("utf-8")
+
+
+def _payload_encryption_key(secret: bytes, context: bytes) -> bytes:
+    if not isinstance(secret, bytes) or not secret:
+        raise KeyMaterialError("payload encryption requires a non-empty shared secret")
+    return hmac.digest(secret, _PAYLOAD_ENCRYPTION_DOMAIN + context, "sha256")
 
 
 def media_hash_matches(media_bytes: bytes, expected_hash_hex: str) -> bool:

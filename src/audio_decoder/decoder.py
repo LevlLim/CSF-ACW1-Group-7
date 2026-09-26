@@ -27,6 +27,7 @@ from crypto_payload import (
     Verdict,
     VerificationPayload,
     media_hash_matches,
+    open_signed_envelope,
     parse_and_verify,
     verdict_for_error,
 )
@@ -111,7 +112,8 @@ def _decode_and_verify(
     )
 
     # --- 3. verify signature and parse payload (Person 5) ---
-    payload = parse_and_verify(envelope_bytes, public_key_pem)
+    signed_envelope = open_signed_envelope(envelope_bytes, start_secret, media_id, "audio")
+    payload = parse_and_verify(signed_envelope, public_key_pem)
 
     # --- 4. FR9: recompute stable audio bytes and compare (shared
     #     convention with audio_stego.encoder.create_signed_audio_payload —

@@ -22,9 +22,11 @@ selection, recovery and tamper-detection requirements.
 - The derived location is only as strong as the secret's entropy — a weak,
   guessable secret undermines the whole scheme.
 
-**Optional second layer (not yet wired into the GUI):**
-`crypto_payload.encrypt_bytes`/`decrypt_bytes` (AES-256-GCM) can encrypt the
-signed envelope before embedding, adding confidentiality on top of the
-integrity/authenticity the signature already provides — useful for the
-"custom payload" case in the test matrix, which the spec asks to protect for
-confidentiality as well as integrity.
+**Payload confidentiality layer:**
+The Image and Audio encoder checkboxes encrypt the signed envelope with
+AES-256-GCM before embedding. A domain-separated HMAC derives the key from the
+shared secret, media ID and cover type, and the decoder automatically supports
+both encrypted and earlier signed-only envelopes. This provides confidentiality
+and authenticated encryption for the custom-payload case. A weak shared secret
+still permits guessing attacks, so the demo must use a strong secret and explain
+that production deployment would use a password KDF or managed key.

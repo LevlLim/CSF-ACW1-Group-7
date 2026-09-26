@@ -86,7 +86,7 @@ def stable_audio_bytes(
     wav: WavData,
     lsb_depth: int
 ) -> bytes:
-    """Create the stable PCM representation used for hashing."""
+    """Create the stable audio representation used for hashing."""
 
     if not 1 <= lsb_depth <= 8:
         raise ValueError(
@@ -101,20 +101,22 @@ def stable_audio_bytes(
     )
 
     if wav.sample_width == 1:
-        return bytes(
+        pcm = bytes(
             sample & 0xFF
             for sample in cleaned_samples
         )
-
-    if wav.sample_width == 2:
-        return struct.pack(
+    elif wav.sample_width == 2:
+        pcm = struct.pack(
             f"<{len(cleaned_samples)}h",
             *cleaned_samples
         )
+    else:
+        raise AudioStegoError("Unsupported sample width")
 
-    raise AudioStegoError(
-        "Unsupported sample width"
+    properties = struct.pack(
+        ">IIII", wav.channels, wav.sample_width, wav.frame_rate, wav.frame_count
     )
+    return b"CSF7-AUDIO-HASH-V2\x00" + properties + pcm
 
 #convert payload bytes to bits
 def bytes_to_bits(data: bytes) -> list[int]:

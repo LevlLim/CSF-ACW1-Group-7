@@ -148,19 +148,28 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         ctk.CTkLabel(master, text="Start-location secret").grid(row=3, column=0, sticky="w", pady=6)
         self.secret_entry = ctk.CTkEntry(master, show="*")
         self.secret_entry.grid(row=3, column=1, sticky="ew", padx=(6, 0), pady=6)
+        self.secret_entry.bind("<KeyRelease>", lambda _event: self.refresh_capacity())
+
+        self.encrypt_payload_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            master,
+            text="Encrypt custom payload (AES-256-GCM)",
+            variable=self.encrypt_payload_var,
+            command=self.refresh_capacity,
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=6)
 
         ctk.CTkButton(master, text="Generate Signing Keypair", command=self.on_generate_keypair).grid(
-            row=4, column=0, columnspan=2, sticky="ew", pady=(10, 6)
+            row=5, column=0, columnspan=2, sticky="ew", pady=(10, 6)
         )
         key_label_row = ctk.CTkFrame(master, fg_color="transparent")
-        key_label_row.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 2))
+        key_label_row.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(6, 2))
         key_label_row.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(key_label_row, text="Public key (share with verifier)", anchor="w").grid(row=0, column=0, sticky="w")
         ctk.CTkButton(key_label_row, text="Copy", width=56, command=self.on_copy_public_key).grid(row=0, column=1, sticky="e")
 
         self.public_key_box = ctk.CTkTextbox(master, height=70, font=theme.mono_font())
         theme.style_textbox_selection(self.public_key_box)
-        self.public_key_box.grid(row=6, column=0, columnspan=2, sticky="ew")
+        self.public_key_box.grid(row=7, column=0, columnspan=2, sticky="ew")
         self.public_key_box.configure(state="disabled")
 
     def build_diagnostics(self, master: ctk.CTkFrame, row: int) -> None:
@@ -259,7 +268,15 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
             media_id = self.media_id_entry.get().strip()
             note = self.message_box.get("1.0", "end").strip()
             depth = int(self.lsb_depth_selector.get())
-            status = audio_workflow.check_audio_capacity(self.cover_path, media_id, self.private_key_pem, depth, note=note)
+            status = audio_workflow.check_audio_capacity(
+                self.cover_path,
+                media_id,
+                self.private_key_pem,
+                depth,
+                note=note,
+                start_secret=self.secret_entry.get().encode("utf-8"),
+                encrypt_payload=self.encrypt_payload_var.get(),
+            )
         except _EXPECTED_FAILURES as exc:
             self.payload_size_value.configure(text="–")
             self.capacity_value.configure(text="–")
@@ -290,7 +307,15 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         depth = int(self.lsb_depth_selector.get())
 
         try:
-            status = audio_workflow.check_audio_capacity(self.cover_path, media_id, self.private_key_pem, depth, note=note)
+            status = audio_workflow.check_audio_capacity(
+                self.cover_path,
+                media_id,
+                self.private_key_pem,
+                depth,
+                note=note,
+                start_secret=secret,
+                encrypt_payload=self.encrypt_payload_var.get(),
+            )
             if not status.fits:
                 self.set_status(
                     f"Payload does not fit: needs {status.needed_bytes} bytes, "
@@ -311,7 +336,14 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
                 return
 
             result = audio_workflow.encode_audio(
-                self.cover_path, stego_path, media_id, self.private_key_pem, secret, depth, note=note
+                self.cover_path,
+                stego_path,
+                media_id,
+                self.private_key_pem,
+                secret,
+                depth,
+                note=note,
+                encrypt_payload=self.encrypt_payload_var.get(),
             )
         except _EXPECTED_FAILURES as exc:
             self.set_status(f"Encoding failed: {exc}", error=True)
@@ -338,8 +370,9 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         self.embed_result_values["Carriers used"].configure(text=str(result.carriers_used))
         self.embed_result_values["Start location"].configure(text=str(result.start_location))
         if self.diagnostics_changed_samples is not None:
+            protection = "encrypted and signed" if self.encrypt_payload_var.get() else "signed"
             self.set_status(
-                f"Encoded successfully: {self.stego_path.name} — "
+                f"Encoded {protection} payload successfully: {self.stego_path.name} — "
                 f"{self.diagnostics_changed_samples} samples changed."
             )
 

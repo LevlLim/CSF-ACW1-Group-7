@@ -20,7 +20,9 @@ from crypto_payload import (
     encrypt_bytes,
     generate_ed25519_keypair,
     media_hash_matches,
+    open_signed_envelope,
     parse_and_verify,
+    protect_signed_envelope,
     sha256_hex,
     sign_payload,
     verdict_for_error,
@@ -116,6 +118,16 @@ class CryptoPayloadTests(unittest.TestCase):
             decrypt_bytes(encrypted, key, b"different-id")
         with self.assertRaises(KeyMaterialError):
             encrypt_bytes(b"x", b"short")
+
+    def test_signed_envelope_protection_is_backward_compatible(self) -> None:
+        signed = sign_payload(self.payload, self.private_key)
+        protected = protect_signed_envelope(signed, b"shared-secret", "image-001", "image")
+
+        self.assertNotIn(b'"payload"', protected)
+        self.assertEqual(open_signed_envelope(signed, b"shared-secret", "image-001", "image"), signed)
+        self.assertEqual(open_signed_envelope(protected, b"shared-secret", "image-001", "image"), signed)
+        with self.assertRaises(PayloadIntegrityError):
+            open_signed_envelope(protected, b"wrong-secret", "image-001", "image")
 
 
 if __name__ == "__main__":

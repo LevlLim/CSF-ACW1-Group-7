@@ -40,13 +40,28 @@ def read_audio(path: Path) -> WavData:
 
 
 def check_audio_capacity(
-    cover_path: Path, media_id: str, private_key_pem: bytes, lsb_depth: int, note: str = ""
+    cover_path: Path,
+    media_id: str,
+    private_key_pem: bytes,
+    lsb_depth: int,
+    note: str = "",
+    *,
+    start_secret: bytes = b"",
+    encrypt_payload: bool = False,
 ) -> AudioCapacityStatus:
     """Build the signed FR3/FR4 payload for the cover WAV and report whether
     the framed envelope fits at the selected LSB depth, without embedding.
     """
     wav = read_audio(cover_path)
-    signed_envelope = create_signed_audio_payload(wav, media_id, private_key_pem, lsb_depth, note=note)
+    signed_envelope = create_signed_audio_payload(
+        wav,
+        media_id,
+        private_key_pem,
+        lsb_depth,
+        note=note,
+        encrypt_payload=encrypt_payload,
+        start_secret=start_secret,
+    )
     needed_bytes = len(frame_payload(signed_envelope))
     capacity_bytes = audio_capacity_bytes(len(wav.samples), lsb_depth)
     return AudioCapacityStatus(fits=needed_bytes <= capacity_bytes, needed_bytes=needed_bytes, capacity_bytes=capacity_bytes)
@@ -60,6 +75,7 @@ def encode_audio(
     start_secret: bytes,
     lsb_depth: int,
     note: str = "",
+    encrypt_payload: bool = False,
 ) -> AudioEncodeResult:
     """Embed into a WAV or FLAC cover; the output format follows stego_path's extension."""
     with TemporaryDirectory() as temp_name:
@@ -76,6 +92,7 @@ def encode_audio(
             start_secret=start_secret,
             lsb_depth=lsb_depth,
             note=note,
+            encrypt_payload=encrypt_payload,
         )
         if wants_flac(stego_path):
             save_wav_as_flac(target, stego_path)

@@ -106,6 +106,7 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
             "Results",
             [
                 "Signature",
+                "Payload protection",
                 "Media hash match",
                 "Embedded message hash",
                 "Decoded message hash",
@@ -210,6 +211,9 @@ class VerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wi
         self.message_display.configure(text=(payload.metadata.get("note", "") or "(none)") if payload else "–")
         signature = "Invalid" if isinstance(error, SignatureInvalidError) else ("Valid" if payload is not None else "–")
         self.result_values["Signature"].configure(text=signature)
+        self.result_values["Payload protection"].configure(
+            text=("AES-256-GCM" if payload.metadata.get("payload_encrypted") else "Signed only") if payload else "–"
+        )
         self.result_values["Media hash match"].configure(
             text="Yes" if verdict == Verdict.AUTHENTIC else ("No" if verdict == Verdict.TAMPERED else "–")
         )

@@ -26,6 +26,7 @@ from crypto_payload import (
     Verdict,
     VerificationPayload,
     message_hash_hex,
+    open_signed_envelope,
     parse_and_verify,
     verdict_for_error,
 )
@@ -167,7 +168,8 @@ def _decode_and_verify(
         raise PayloadFrameError("truncated or malformed payload envelope")
 
     # --- 3. verify signature and parse payload (Person 5) ---
-    payload = parse_and_verify(envelope_bytes, public_key_pem)
+    signed_envelope = open_signed_envelope(envelope_bytes, start_secret, media_id, "image")
+    payload = parse_and_verify(signed_envelope, public_key_pem)
 
     pixel_index = start_channel // _RGB_CHANNELS
     start_y, start_x = divmod(pixel_index, width)

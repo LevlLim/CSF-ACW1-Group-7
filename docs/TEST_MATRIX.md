@@ -18,8 +18,10 @@ that doesn't exist yet), `Planned` (case is defined but not run yet).
 | IMG-N2 | Negative | Short | Extract using the wrong start-location secret | Wrong Start Location | Ready — image decoder implemented |
 | IMG-N3 | Negative | Short | Extract using a public key that doesn't match the signer | Signature Invalid | Ready — image decoder implemented |
 | IMG-N4 | Negative | Any | Attempt to embed a payload larger than the cover's capacity | Rejected before embedding (capacity check) | Ready — capacity check works today in the GUI |
+| IMG-N5 | Negative | Short | Change only an RGBA image's alpha channel after embedding | Tampered | Ready — alpha is included in the stable media hash |
 | IMG-CAP | Capacity check | — | Compare payload size vs. cover size before embedding | Pass/fail shown in GUI | Ready |
 | IMG-A2B | Party A→B | Custom | A embeds and "sends" (e.g. emails) the stego file; B downloads it independently and extracts + verifies | Authentic | Ready — image encode/decode workflow implemented |
+| IMG-CUSTOM | Positive | Confidential custom message | Enable AES-256-GCM, embed, then extract with the shared context | Authentic; AES-256-GCM shown | Ready — encrypted workflow tested |
 
 ## Audio cases
 
@@ -30,12 +32,13 @@ that doesn't exist yet), `Planned` (case is defined but not run yet).
 | AUD-N1 | Negative | Short | Corrupt a sample in the stego WAV, then extract | Tampered | Ready — audio decoder implemented |
 | AUD-N2 | Negative | Short | Extract with the wrong start-location secret | Payload Missing | Ready — audio decoder implemented |
 | AUD-N3 | Negative | Any | Extract an unmodified cover WAV with no payload | Payload Missing | Ready — audio decoder implemented |
+| AUD-N4 | Negative | Short | Change the WAV sample rate without changing samples | Tampered | Ready — PCM properties are included in the stable media hash |
+| AUD-CUSTOM | Positive | Confidential custom message | Enable AES-256-GCM, embed, then extract with the shared context | Authentic; AES-256-GCM shown | Ready — encrypted workflow tested |
 
 ## Notes
 
 - Payload sizes per the spec: short = one Learning Outcome sentence, large =
-  the Project Overview paragraph, custom = whatever the team defines to also
-  demonstrate confidentiality (candidate: AES-256-GCM via
-  `crypto_payload.encrypt_bytes` before embedding).
+  the Project Overview paragraph, and custom = a team-defined confidential
+  message protected with the Image/Audio AES-256-GCM checkbox.
 - Capture screenshots/logs from the ready image and audio cases as FR12
   demonstration evidence.

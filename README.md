@@ -16,7 +16,7 @@
 | FR10 | Verdict generation | Person 5 + Person 2/4 | **Implemented:** verdict mapper; P2/P4 display it in their workflow/GUI. |
 | FR11 | Positive and negative cases | Person 6, with P1--P5 support | **Implemented:** This library provides unit-testable crypto failure conditions. |
 | FR12 | Evidence and reproducibility | Person 6, with team support | **Implemented:** Setup and validation commands are documented below. |
-| FR13 | Innovation | Person 6 | **Implemented:** HMAC-derived secret start location and optional AES-GCM are available as possible supporting design elements. |
+| FR13 | Innovation | Person 6 | **Implemented:** HMAC-derived start locations and selectable AES-GCM payload confidentiality. |
 
 ### Setup and verification
 
@@ -62,9 +62,9 @@ from image_encoder import (
   payload bytes, `lsb_depth` from 1 to 8, `start_secret`, `media_id`, and an
   optional mouse-selected `start_pixel`.
 - `stable_image_hash(image_path, lsb_depth)` returns a raw 32-byte digest of a
-  normalised RGB representation after zeroing the selected LSB bits. It is a
-  stable image-encoder helper: cover and stego digests match after embedding,
-  and alpha is ignored. Both image workflow paths call this same helper.
+  canonical representation containing dimensions, mode, alpha and RGB values
+  after zeroing the selected RGB LSB bits. Cover and stego digests match after
+  embedding, while alpha or structural tampering changes the digest.
 - Embedding uses row-major RGB channel slots: pixel `(0, 0)` red, green, blue,
   then pixel `(1, 0)`, and so on. Alpha is preserved and never used.
 - The embedded frame is `b"CSFIMG1"` + 4-byte big-endian payload length +
@@ -99,8 +99,9 @@ from image_decoder import ImageDecodeResult, decode_image_file
 - It derives the locator-header position using the shared
   `derive_start_location(...)` protocol, recovers `b"CSFHDR2"`, the framed
   length and clicked start channel, then extracts the `b"CSFIMG1"` payload.
-- The extracted signed envelope is passed to `parse_and_verify(...)`; only a
-  successfully verified payload is used for the subsequent media check.
+- The extracted envelope is automatically decrypted when it is AES-GCM
+  protected, then passed to `parse_and_verify(...)`; only a successfully
+  verified payload is used for the subsequent media check.
 - The decoder masks the selected RGB LSBs, recomputes the stable media bytes,
   and calls `media_hash_matches(...)` for FR9.
 - `ImageDecodeResult` returns the FR10 `Verdict`, a verified
@@ -128,8 +129,8 @@ from workflows.audio_workflow import check_audio_capacity, encode_audio
 - Input is uncompressed 8-bit or 16-bit PCM WAV. The loader preserves channel
   count, sample width, frame rate, and frame count when saving the stego WAV.
 - `create_signed_audio_payload(...)` masks the selected sample LSBs to create
-  stable audio bytes, hashes them with SHA-256, builds the payload, and signs
-  it with Ed25519.
+  stable audio bytes containing the PCM properties and samples, hashes them
+  with SHA-256, builds the payload, and signs it with Ed25519.
 - The signed envelope is framed as `b"CSF7"` + a 4-byte big-endian payload
   length + payload bytes, then embedded MSB-first into the requested 1–8 LSBs
   of PCM samples.
@@ -162,8 +163,9 @@ from audio_decoder import AudioDecodeResult, decode_audio_file
 - It derives the fixed locator-header position using the shared
   `resolve_header_start_sample(...)` protocol, recovers `b"CSFAHD1"` and the
   framed length, then derives and extracts the main `b"CSF7"` payload frame.
-- The extracted signed envelope is passed to `parse_and_verify(...)`; only a
-  successfully verified payload is used for the subsequent media check.
+- The extracted envelope is automatically decrypted when it is AES-GCM
+  protected, then passed to `parse_and_verify(...)`; only a successfully
+  verified payload is used for the subsequent media check.
 - The decoder masks the selected PCM-sample LSBs, recomputes the stable media
   bytes, and calls `media_hash_matches(...)` for FR9.
 - `AudioDecodeResult` returns the FR10 `Verdict`, a verified
@@ -186,6 +188,7 @@ to **FR10: Verdict generation** outcomes.
 from crypto_payload import (
     build_payload, sign_payload, parse_and_verify, sha256_hex,
     derive_start_location, encrypt_bytes, decrypt_bytes,
+    protect_signed_envelope, open_signed_envelope,
     media_hash_matches, verdict_for_error,
 )
 ```
@@ -200,8 +203,9 @@ public key may be distributed for verification.
   256-bit random nonce, format version, and JSON-safe metadata.
 - Canonical UTF-8 JSON is signed with Ed25519. The signed envelope can be
   verified only with its paired public key.
-- Optional AES-256-GCM encrypts an envelope when confidentiality is required;
-  it includes authenticated encryption rather than unauthenticated encryption.
+- The Image and Audio encoder checkboxes can wrap the signed envelope with
+  AES-256-GCM. A domain-separated HMAC derives its 256-bit key from the shared
+  secret, media ID and cover type; the decoder detects and opens it automatically.
 - Start location is HMAC-SHA-256(secret, media ID, cover type, capacity, payload
   length), with a protocol-domain label. It is not stored in plaintext. Both
   encoder and decoder need the same secret and context; provide this secret via
@@ -239,14 +243,14 @@ A top nav bar (`gui/navigation.py`) switches between full-page views
 The **Image** page shows Embed and Extract & Verify side by side. It supports
 PNG selection, session Ed25519 key generation, selectable 1–8-bit LSB depth,
 mouse-selected payload placement with secret-based recovery, live capacity checks, embedding, extraction, signature
-verification, media-hash verification, and verdict display. After embedding it
+verification, optional AES-GCM payload protection, media-hash verification, and verdict display. After embedding it
 also renders an exact LSB-change map and a relative embedding-density heat
 map. The first shows precisely which selected low bits changed; the second
 counts changed pixels before grouping them into an easy-to-read overview, so
 sparse one-bit changes do not disappear.
 
-The **Audio** page mirrors this layout for WAV workflows. Its encoder provides
-WAV information, capacity feedback, session-key generation, embedding, and
+The **Audio** page mirrors this layout for WAV/FLAC workflows. Its encoder provides
+audio information, capacity feedback, session-key generation, optional AES-GCM protection, embedding, and
 cover/stego playback. After embedding, it also displays a selected-LSB change
 map and an embedding-density timeline; its verification panel collects the
 shared verification context and presents result fields consistently with the
@@ -262,9 +266,9 @@ shared crypto acceptance criteria.
 
 1. Hash the agreed **stable pre-embedding representation** (not an already
    changed stego file), then call `build_payload` and `sign_payload`.
-2. If payload confidentiality is in scope, call `encrypt_bytes` on the signed
-   envelope. Use the resulting bytes as the embedding payload and include the
-   same media ID as AES-GCM associated data on decryption.
+2. For the confidential custom case, enable the encoder's AES-GCM checkbox.
+   `protect_signed_envelope` derives a separate encryption key from the shared
+   secret and context; `open_signed_envelope` handles plain and encrypted files.
 3. Call `derive_start_location` using a secret from the application’s secure
    configuration and the cover capacity in the embedding unit used by your
    module. Capacity must accommodate the exact bytes to embed.
