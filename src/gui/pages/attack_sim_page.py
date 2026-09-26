@@ -1,5 +1,5 @@
-"""Attack Sim page: one tab with a toggle to switch between the Image and
-Audio attack simulation panels — only one is shown at a time."""
+"""Attack Sim page: one tab with a toggle to switch between the Image,
+Audio and Video attack simulation panels — only one is shown at a time."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import customtkinter as ctk
 from .. import theme
 from ..panels.audio_attack_panel import AudioAttackPanel
 from ..panels.image_attack_panel import ImageAttackPanel
+from ..panels.video_attack_panel import VideoAttackPanel
 
 
 class AttackSimPage(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships without type stubs
@@ -21,7 +22,7 @@ class AttackSimPage(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships 
         toggle_row = ctk.CTkFrame(self, fg_color="transparent")
         toggle_row.grid(row=0, column=0, sticky="w", pady=(0, 12))
         self.cover_type_toggle = ctk.CTkSegmentedButton(
-            toggle_row, values=["Image", "Audio"], command=self.on_toggle
+            toggle_row, values=["Image", "Audio", "Video"], command=self.on_toggle
         )
         self.cover_type_toggle.set("Image")
         self.cover_type_toggle.pack(anchor="w")
@@ -43,7 +44,14 @@ class AttackSimPage(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships 
         self.audio_attack_panel = AudioAttackPanel(scroll_area)
         self.audio_attack_panel.grid(row=0, column=0, sticky="new")
 
-        self.panels = {"Image": self.image_attack_panel, "Audio": self.audio_attack_panel}
+        self.video_attack_panel = VideoAttackPanel(scroll_area)
+        self.video_attack_panel.grid(row=0, column=0, sticky="new")
+
+        self.panels = {
+            "Image": self.image_attack_panel,
+            "Audio": self.audio_attack_panel,
+            "Video": self.video_attack_panel,
+        }
         self.image_attack_panel.tkraise()
 
     def on_toggle(self, choice: str) -> None:
