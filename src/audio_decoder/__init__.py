@@ -3,9 +3,11 @@
 from .decoder import (
     AudioDecodeResult,
     decode_audio_file,
+    extract_envelope,
 )
 
 __all__ = [
     "AudioDecodeResult",
     "decode_audio_file",
+    "extract_envelope",
 ]

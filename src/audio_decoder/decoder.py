@@ -43,6 +43,7 @@ from audio_stego.locations import (
     resolve_header_start_sample,
     resolve_payload_start_sample,
 )
+from audio_stego.models import WavData
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +104,45 @@ def _decode_and_verify(
         raise ValueError("lsb_depth must be an integer from 1 to 8")
 
     wav = load_wav_pcm(stego_path)
+
+    # --- 1-2. locate + read the header, then the framed signed payload ---
+    envelope_bytes = extract_envelope(
+        wav, lsb_depth=lsb_depth, start_secret=start_secret, media_id=media_id
+    )
+
+    # --- 3. verify signature and parse payload (Person 5) ---
+    payload = parse_and_verify(envelope_bytes, public_key_pem)
+
+    # --- 4. FR9: recompute stable audio bytes and compare (shared
+    #     convention with audio_stego.encoder.create_signed_audio_payload —
+    #     see this module's docstring) ---
+    media_bytes = stable_audio_bytes(wav, lsb_depth)
+    hash_matches = media_hash_matches(media_bytes, payload.media_hash)
+
+    return payload, hash_matches
+
+
+def extract_envelope(
+    wav: WavData,
+    *,
+    lsb_depth: int,
+    start_secret: bytes,
+    media_id: str,
+) -> bytes:
+    """Read the hidden signed envelope out of already-loaded PCM samples.
+
+    Steps 1-2 of decoding, split out of ``_decode_and_verify`` so other
+    cover types that carry audio (the video decoder) can reuse the exact
+    same extraction. Does NOT verify the signature or the media hash —
+    callers do that, because what gets hashed differs per cover type.
+
+    Raises:
+        SerializationFormatError: header or frame missing, corrupted, or truncated.
+        ValueError: invalid lsb_depth, or positions that cannot fit the audio.
+    """
+    if not isinstance(lsb_depth, int) or not 1 <= lsb_depth <= 8:
+        raise ValueError("lsb_depth must be an integer from 1 to 8")
+
     capacity = len(wav.samples)
 
     # --- 1. locate + read the fixed-size locator header ---
@@ -131,16 +171,7 @@ def _decode_and_verify(
     if len(envelope_bytes) != declared_len:
         raise SerializationFormatError("truncated or malformed payload envelope")
 
-    # --- 3. verify signature and parse payload (Person 5) ---
-    payload = parse_and_verify(envelope_bytes, public_key_pem)
-
-    # --- 4. FR9: recompute stable audio bytes and compare (shared
-    #     convention with audio_stego.encoder.create_signed_audio_payload —
-    #     see this module's docstring) ---
-    media_bytes = stable_audio_bytes(wav, lsb_depth)
-    hash_matches = media_hash_matches(media_bytes, payload.media_hash)
-
-    return payload, hash_matches
+    return envelope_bytes
 
 
 def _extract_bytes(
