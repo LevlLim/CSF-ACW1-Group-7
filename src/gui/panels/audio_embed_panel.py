@@ -13,8 +13,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 from PIL import Image
 
-from audio_stego.common import AudioStegoError, load_wav_pcm
-from audio_stego_visuals import build_visuals
+from audio_stego.common import AudioStegoError
 from crypto_payload import CryptoPayloadError, generate_ed25519_keypair
 from workflows import audio_workflow
 
@@ -56,13 +55,13 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         content.grid_columnconfigure(0, weight=1)
 
         row = 0
-        theme.panel_header(content, 1, "Audio Encoder", "Hide verification data inside a WAV file").grid(
+        theme.panel_header(content, 1, "Audio Encoder", "Hide verification data inside a WAV or FLAC file").grid(
             row=row, column=0, sticky="w", pady=(0, 10)
         )
         row += 1
 
         labeled_file_picker(
-            content, row, "Cover Audio", "Cover WAV", filetypes=[("WAV audio", "*.wav")], on_selected=self.on_cover_selected
+            content, row, "Cover Audio", "Cover audio", filetypes=[("WAV or FLAC audio", "*.wav *.flac")], on_selected=self.on_cover_selected
         )
         row += 2
 
@@ -195,11 +194,11 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
     def on_cover_selected(self, path: Path) -> bool:
         self.cover_path = path
         try:
-            wav = load_wav_pcm(path)
+            wav = audio_workflow.read_audio(path)
         except AudioStegoError as exc:
             self.cover_path = None
             self.diagnostic_images.clear()
-            self.set_status(f"Could not read WAV: {exc}", error=True)
+            self.set_status(f"Could not read audio file: {exc}", error=True)
             return False
         self.channels_value.configure(text=str(wav.channels))
         self.sample_rate_value.configure(text=f"{wav.frame_rate} Hz")
@@ -210,7 +209,7 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         self.clear_diagnostic(self.lsb_change_preview, "(generated after embedding)")
         self.clear_diagnostic(self.density_preview, "(generated after embedding)")
         self.diagnostic_images.clear()
-        self.set_status(f"Cover WAV selected: {path.name}")
+        self.set_status(f"Cover audio selected: {path.name}")
         self.refresh_capacity()
         return True
 
@@ -277,7 +276,7 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
 
     def on_encode(self) -> None:
         if self.cover_path is None:
-            self.set_status("Select a cover WAV first.", error=True)
+            self.set_status("Select a cover WAV or FLAC file first.", error=True)
             return
         if self.private_key_pem is None:
             self.set_status("Generate a signing keypair first.", error=True)
@@ -300,8 +299,13 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
                 )
                 return
 
+            # Default to the cover's own format; both WAV and FLAC keep the hidden bits intact.
+            wav_type, flac_type = ("WAV audio", "*.wav"), ("FLAC audio", "*.flac")
+            cover_is_flac = self.cover_path.suffix.lower() == ".flac"
             stego_path = filedialog.asksaveasfilename(
-                title="Save stego audio as", defaultextension=".wav", filetypes=[("WAV audio", "*.wav")]
+                title="Save stego audio as",
+                defaultextension=".flac" if cover_is_flac else ".wav",
+                filetypes=[flac_type, wav_type] if cover_is_flac else [wav_type, flac_type],
             )
             if not stego_path:
                 return
@@ -317,7 +321,7 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         self.play_stego_button.configure(state="normal")
         self.diagnostics_changed_samples = None
         try:
-            visuals = build_visuals(self.cover_path, self.stego_path, depth)
+            visuals = audio_workflow.build_audio_visuals(self.cover_path, self.stego_path, depth)
             self.diagnostic_images["lsb_change"] = visuals.lsb_change_map
             self.diagnostic_images["density"] = visuals.density_timeline
             self.show_diagnostic(self.lsb_change_preview, visuals.lsb_change_map)

@@ -1,4 +1,4 @@
-"""All ffmpeg calls for the video cover object live here, nowhere else.
+"""All ffmpeg calls live here, nowhere else (video cover object + the Audio tab's FLAC support).
 
 Uses the ffmpeg binary bundled by imageio-ffmpeg, so no system install is needed.
 Every function either returns data or raises VideoStegoError — no printing;
@@ -145,6 +145,20 @@ def remux(cover_video: str | Path, stego_wav: str | Path, out: str | Path) -> No
         "-c:a", "flac",
         "-f", "mp4",
         _safe_path(out),
+    ])
+
+
+def wav_to_flac(wav: str | Path, flac_out: str | Path) -> None:
+    """Losslessly compress a WAV into a FLAC file (used by the Audio tab's FLAC support).
+
+    FLAC keeps every sample bit-exact, so hidden LSB data survives.
+    """
+    _run_ffmpeg([
+        "-i", _safe_path(wav),
+        "-map", "0:a:0",
+        "-c:a", "flac",
+        "-f", "flac",
+        _safe_path(flac_out),
     ])
 
 

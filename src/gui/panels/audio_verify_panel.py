@@ -55,13 +55,13 @@ class AudioVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
         content.grid_columnconfigure(0, weight=1)
 
         row = 0
-        theme.panel_header(content, 2, "Audio Decoder", "Recover the payload from a stego WAV").grid(
+        theme.panel_header(content, 2, "Audio Decoder", "Recover the payload from a stego WAV or FLAC").grid(
             row=row, column=0, sticky="w", pady=(0, 10)
         )
         row += 1
 
         labeled_file_picker(
-            content, row, "Stego Audio", "Stego WAV", filetypes=[("WAV audio", "*.wav")], on_selected=self.on_stego_selected
+            content, row, "Stego Audio", "Stego audio", filetypes=[("WAV or FLAC audio", "*.wav *.flac")], on_selected=self.on_stego_selected
         )
         row += 2
 
@@ -149,7 +149,7 @@ class AudioVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
 
     def on_verify(self) -> None:
         if self.verify_stego_path is None:
-            self.set_status("Select a stego WAV first.", error=True)
+            self.set_status("Select a stego WAV or FLAC file first.", error=True)
             return
         media_id = self.media_id_entry.get().strip()
         if not media_id:
