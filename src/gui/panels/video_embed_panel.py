@@ -222,6 +222,9 @@ class VideoEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         self.cover_path = path
         self.cover_info = info
         self.stego_path = None
+        # A fresh media ID for every new cover, same as the Image tab.
+        self.media_id_entry.delete(0, "end")
+        self.media_id_entry.insert(0, self.default_media_id())
         self.duration_value.configure(text=f"{info.duration_seconds:.1f} s")
         self.audio_value.configure(text=f"{info.sample_rate} Hz · {info.channels} ch")
         self.streams_value.configure(text=" + ".join(info.stream_kinds))
