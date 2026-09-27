@@ -4,6 +4,7 @@ and embeds it into a PNG. This is the fully-working half of the Image page.
 
 from __future__ import annotations
 
+from cProfile import label
 from datetime import UTC, datetime
 from pathlib import Path
 from tkinter import filedialog
@@ -44,7 +45,7 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.cover_image: Image.Image | None = None
         self.stego_path: Path | None = None
         self.selected_start_pixel: tuple[int, int] | None = None
-        self.cover_preview_size = (0, 0)
+        self.cover_preview_layout = (0, 0, 0, 0)
         self.diagnostics_changed_channels: int | None = None
         self.diagnostic_images: dict[str, Image.Image] = {}
         blank = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
@@ -229,22 +230,30 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         return True
 
     def on_cover_clicked(self, event: object) -> None:
-        """Map a click on the scaled preview back to an original-image pixel."""
         if self.cover_image is None:
             return
 
-        rendered_width, rendered_height = self.cover_preview_size
-        if rendered_width <= 0 or rendered_height <= 0:
-            return
-        left = (self.cover_preview.winfo_width() - rendered_width) / 2
-        top = (self.cover_preview.winfo_height() - rendered_height) / 2
-        display_x = event.x - left  # type: ignore[attr-defined]
-        display_y = event.y - top  # type: ignore[attr-defined]
-        if not (0 <= display_x < rendered_width and 0 <= display_y < rendered_height):
+        widget_width = self.cover_preview.winfo_width()
+        widget_height = self.cover_preview.winfo_height()
+        if widget_width <= 0 or widget_height <= 0:
             return
 
-        x = min(self.cover_image.width - 1, int(display_x * self.cover_image.width / rendered_width))
-        y = min(self.cover_image.height - 1, int(display_y * self.cover_image.height / rendered_height))
+        frac_x = event.x / widget_width  # type: ignore[attr-defined]
+        frac_y = event.y / widget_height  # type: ignore[attr-defined]
+        if not (0 <= frac_x < 1 and 0 <= frac_y < 1):
+            return
+
+        logical_x = frac_x * _THUMBNAIL_SIZE[0]
+        logical_y = frac_y * _THUMBNAIL_SIZE[1]
+
+        paste_x, paste_y, scaled_w, scaled_h = self.cover_preview_layout
+        rel_x = logical_x - paste_x
+        rel_y = logical_y - paste_y
+        if not (0 <= rel_x < scaled_w and 0 <= rel_y < scaled_h):
+            return  # clicked on the letterbox padding, not the image itself
+
+        x = min(self.cover_image.width - 1, int(rel_x * self.cover_image.width / scaled_w))
+        y = min(self.cover_image.height - 1, int(rel_y * self.cover_image.height / scaled_h))
         self.selected_start_pixel = (x, y)
         self.start_pixel_value.configure(text=f"({x}, {y})")
 
@@ -437,13 +446,21 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.show_image(label, image)
 
     def show_image(self, label: ctk.CTkLabel, image: Image.Image) -> None:
-        thumb = image.copy()
-        thumb.thumbnail(_THUMBNAIL_SIZE)
         if label is self.cover_preview:
-            self.cover_preview_size = thumb.size
-        photo = ctk.CTkImage(light_image=thumb, dark_image=thumb, size=thumb.size)
+            thumb = image.copy()
+            thumb.thumbnail(_THUMBNAIL_SIZE)
+            canvas = Image.new("RGB", _THUMBNAIL_SIZE, (255, 255, 255))
+            paste_x = (_THUMBNAIL_SIZE[0] - thumb.width) // 2
+            paste_y = (_THUMBNAIL_SIZE[1] - thumb.height) // 2
+            canvas.paste(thumb.convert("RGB"), (paste_x, paste_y))
+            self.cover_preview_layout = (paste_x, paste_y, thumb.width, thumb.height)
+            photo = ctk.CTkImage(light_image=canvas, dark_image=canvas, size=_THUMBNAIL_SIZE)
+        else:
+            thumb = image.copy()
+            thumb.thumbnail(_THUMBNAIL_SIZE)
+            photo = ctk.CTkImage(light_image=thumb, dark_image=thumb, size=thumb.size)
         label.configure(image=photo, text="")
-        label.image = photo  # keep a reference alive; CTkLabel does not retain one
+        label.image = photo
 
     def clear_preview(self, label: ctk.CTkLabel, placeholder: str) -> None:
         label.configure(image=self._blank_preview_image, text=placeholder)
