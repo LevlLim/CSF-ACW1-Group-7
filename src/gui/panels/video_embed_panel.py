@@ -336,6 +336,19 @@ class VideoEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
             return
 
         cover_path, stego_path, private_key_pem = self.cover_path, Path(stego_name), self.private_key_pem
+        if (
+            stego_path.resolve()
+            == cover_path.resolve()
+        ):
+            self.set_status(
+                (
+                    "Choose a different output file; "
+                    "the stego video must not overwrite "
+                    "the cover."
+                ),
+                error=True,
+            )
+            return
 
         def work() -> tuple[VideoEncodeResult, Image.Image, AudioStegoVisuals | None]:
             result = video_workflow.encode_video(cover_path, stego_path, media_id, private_key_pem, secret, depth, note)

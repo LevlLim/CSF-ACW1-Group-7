@@ -25,7 +25,11 @@ from audio_stego.locations import (
     resolve_payload_start_sample,
 )
 
-from crypto_payload import generate_ed25519_keypair
+from crypto_payload import (
+    generate_ed25519_keypair,
+    open_signed_envelope,
+    protect_signed_envelope,
+)
 from crypto_payload.core import _canonical_json_bytes
 
 from .models import AttackSimulationResult
@@ -339,6 +343,11 @@ def simulate_audio_tampering(
         bits_per_sample,
     )
 
+    Path(output_path).parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
     save_wav_pcm(
         output_path,
         wav,
@@ -430,14 +439,40 @@ def simulate_payload_corruption(
     )
 
     try:
-        # Outer signed envelope
-        envelope = json.loads(
+        # Read outer envelope.
+        outer_envelope = json.loads(
             envelope_bytes.decode("utf-8")
         )
 
-        # Decode the embedded payload
-        payload_bytes = base64.urlsafe_b64decode(
-            envelope["payload"]
+        # Was AES encryption enabled?
+        was_encrypted = (
+            set(outer_envelope)
+            == {
+                "ciphertext",
+                "nonce",
+                "version",
+            }
+        )
+
+        # Open/decrypt if necessary.
+        signed_envelope_bytes = (
+            open_signed_envelope(
+                envelope_bytes,
+                start_secret,
+                media_id,
+                "audio",
+            )
+        )
+
+        # Parse the normal signed envelope.
+        envelope = json.loads(
+            signed_envelope_bytes.decode("utf-8")
+        )
+
+        payload_bytes = (
+            base64.urlsafe_b64decode(
+                envelope["payload"]
+            )
         )
 
         payload = json.loads(
@@ -500,11 +535,29 @@ def simulate_payload_corruption(
         ).decode("ascii")
     )
 
-    modified_envelope_bytes = (
+    # Rebuild the modified signed envelope.
+    modified_signed_envelope = (
         _canonical_json_bytes(envelope)
     )
 
-    # Frame it again
+    # Restore AES protection if the original
+    # payload was encrypted.
+    if was_encrypted:
+        modified_envelope_bytes = (
+            protect_signed_envelope(
+                modified_signed_envelope,
+                start_secret,
+                media_id,
+                "audio",
+            )
+        )
+
+    else:
+        modified_envelope_bytes = (
+            modified_signed_envelope
+        )
+
+    # Frame it again.
     modified_framed = frame_payload(
         modified_envelope_bytes
     )
@@ -515,6 +568,11 @@ def simulate_payload_corruption(
         modified_framed,
         layout["payload_start"],
         lsb_depth,
+    )
+
+    Path(output_path).parent.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
     save_wav_pcm(

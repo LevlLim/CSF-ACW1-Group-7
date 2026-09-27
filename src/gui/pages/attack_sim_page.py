@@ -5,54 +5,192 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
-from .. import theme
 from ..panels.audio_attack_panel import AudioAttackPanel
 from ..panels.image_attack_panel import ImageAttackPanel
 from ..panels.video_attack_panel import VideoAttackPanel
 
 
-class AttackSimPage(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships without type stubs
-    def __init__(self, master: ctk.CTkBaseClass) -> None:
-        super().__init__(master, fg_color="transparent")
+class AttackSimPage(ctk.CTkFrame):
+    def __init__(
+        self,
+        master: ctk.CTkBaseClass,
+    ) -> None:
 
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-
-        # Toggle row: choose which cover type's attacks to run.
-        toggle_row = ctk.CTkFrame(self, fg_color="transparent")
-        toggle_row.grid(row=0, column=0, sticky="w", pady=(0, 12))
-        self.cover_type_toggle = ctk.CTkSegmentedButton(
-            toggle_row, values=["Image", "Audio", "Video"], command=self.on_toggle
+        super().__init__(
+            master,
+            fg_color="transparent",
         )
-        self.cover_type_toggle.set("Image")
-        self.cover_type_toggle.pack(anchor="w")
 
-        # Both panels are built once and swapped with tkraise — same pattern
-        # main_window.py itself uses to switch top-level pages.
-        content = ctk.CTkFrame(self, fg_color="transparent")
-        content.grid(row=1, column=0, sticky="nsew")
-        content.grid_columnconfigure(0, weight=1)
-        content.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(
+            0,
+            weight=1,
+        )
 
-        scroll_area = ctk.CTkScrollableFrame(content, fg_color="transparent")
-        scroll_area.grid(row=0, column=0, sticky="nsew")
-        scroll_area.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(
+            1,
+            weight=1,
+        )
 
-        self.image_attack_panel = ImageAttackPanel(scroll_area)
-        self.image_attack_panel.grid(row=0, column=0, sticky="new")
+        # ---------------------------------
+        # Image / Audio / Video selector
+        # ---------------------------------
 
-        self.audio_attack_panel = AudioAttackPanel(scroll_area)
-        self.audio_attack_panel.grid(row=0, column=0, sticky="new")
+        toggle_row = ctk.CTkFrame(
+            self,
+            fg_color="transparent",
+        )
 
-        self.video_attack_panel = VideoAttackPanel(scroll_area)
-        self.video_attack_panel.grid(row=0, column=0, sticky="new")
+        toggle_row.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(0, 12),
+        )
+
+        self.cover_type_toggle = (
+            ctk.CTkSegmentedButton(
+                toggle_row,
+                values=[
+                    "Image",
+                    "Audio",
+                    "Video",
+                ],
+                command=self.on_toggle,
+            )
+        )
+
+        self.cover_type_toggle.set(
+            "Image"
+        )
+
+        self.cover_type_toggle.pack(
+            anchor="w"
+        )
+
+        # ---------------------------------
+        # Main content area
+        # ---------------------------------
+
+        content = ctk.CTkFrame(
+            self,
+            fg_color="transparent",
+        )
+
+        content.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+        )
+
+        content.grid_columnconfigure(
+            0,
+            weight=1,
+        )
+
+        content.grid_rowconfigure(
+            0,
+            weight=1,
+        )
+
+        # Keep a reference because we need to reset its scroll position.
+        self.scroll_area = (
+            ctk.CTkScrollableFrame(
+                content,
+                fg_color="transparent",
+            )
+        )
+
+        self.scroll_area.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+        )
+
+        self.scroll_area.grid_columnconfigure(
+            0,
+            weight=1,
+        )
+
+        # ---------------------------------
+        # Create the three attack panels
+        # ---------------------------------
+
+        self.image_attack_panel = (
+            ImageAttackPanel(
+                self.scroll_area
+            )
+        )
+
+        self.audio_attack_panel = (
+            AudioAttackPanel(
+                self.scroll_area
+            )
+        )
+
+        self.video_attack_panel = (
+            VideoAttackPanel(
+                self.scroll_area
+            )
+        )
 
         self.panels = {
-            "Image": self.image_attack_panel,
-            "Audio": self.audio_attack_panel,
-            "Video": self.video_attack_panel,
-        }
-        self.image_attack_panel.tkraise()
+            "Image":
+                self.image_attack_panel,
 
-    def on_toggle(self, choice: str) -> None:
-        self.panels[choice].tkraise()
+            "Audio":
+                self.audio_attack_panel,
+
+            "Video":
+                self.video_attack_panel,
+        }
+
+        # Only Image should be visible when the page first opens.
+        self.image_attack_panel.grid(
+            row=0,
+            column=0,
+            sticky="new",
+        )
+
+    def on_toggle(
+        self,
+        choice: str,
+    ) -> None:
+        """
+        Show only the selected attack panel.
+        """
+
+        # Hide ALL panels first.
+        for panel in self.panels.values():
+            panel.grid_remove()
+
+        # Show only the selected one.
+        self.panels[choice].grid(
+            row=0,
+            column=0,
+            sticky="new",
+        )
+
+        # Wait for Tk to recalculate the panel height before resetting scroll.
+        self.after_idle(
+            self._reset_scroll
+        )
+
+    def _reset_scroll(
+        self,
+    ) -> None:
+        """
+        Update the scroll region and return
+        to the top after changing panels.
+        """
+
+        self.update_idletasks()
+
+        canvas = (
+            self.scroll_area._parent_canvas
+        )
+
+        canvas.configure(
+            scrollregion=canvas.bbox("all")
+        )
+
+        canvas.yview_moveto(0)

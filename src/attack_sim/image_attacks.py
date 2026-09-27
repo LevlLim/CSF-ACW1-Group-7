@@ -7,7 +7,11 @@ from pathlib import Path
 
 from PIL import Image
 
-from crypto_payload import generate_ed25519_keypair
+from crypto_payload import (
+    generate_ed25519_keypair,
+    open_signed_envelope,
+    protect_signed_envelope,
+)
 from image_decoder import decode_image_file
 from image_encoder import (
     FRAME_MAGIC,
@@ -271,11 +275,59 @@ def simulate_image_payload_corruption(
     envelope_bytes = _remove_frame(framed)
 
     try:
-        envelope = json.loads(envelope_bytes.decode("utf-8"))
-        payload_bytes = base64.urlsafe_b64decode(envelope["payload"])
-        payload = json.loads(payload_bytes.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        raise ValueError("Could not parse embedded signed payload") from exc
+        # Read the outer envelope first.
+        outer_envelope = json.loads(
+            envelope_bytes.decode("utf-8")
+        )
+
+        # Check whether AES encryption was used.
+        was_encrypted = (
+            set(outer_envelope)
+            == {
+                "ciphertext",
+                "nonce",
+                "version",
+            }
+        )
+
+        # This handles BOTH:
+        # 1. plain signed envelopes
+        # 2. AES-encrypted signed envelopes
+        signed_envelope_bytes = (
+            open_signed_envelope(
+                envelope_bytes,
+                start_secret,
+                media_id,
+                "image",
+            )
+        )
+
+        # Now we definitely have the normal
+        # signed envelope.
+        envelope = json.loads(
+            signed_envelope_bytes.decode("utf-8")
+        )
+
+        payload_bytes = (
+            base64.urlsafe_b64decode(
+                envelope["payload"]
+            )
+        )
+
+        payload = json.loads(
+            payload_bytes.decode("utf-8")
+        )
+
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise ValueError(
+            "Could not parse embedded signed payload"
+        ) from exc
 
     old_media_id = payload.get("media_id")
     if not isinstance(old_media_id, str) or not old_media_id:
@@ -290,9 +342,32 @@ def simulate_image_payload_corruption(
 
     # Replace ONLY the payload, keep the (now stale) signature untouched.
     envelope["payload"] = base64.urlsafe_b64encode(modified_payload_bytes).decode("ascii")
-    modified_envelope_bytes = _canonical_json_bytes(envelope)
+    # Rebuild the modified SIGNED envelope.
+    # The old signature is deliberately kept.
+    modified_signed_envelope = (
+        _canonical_json_bytes(envelope)
+    )
 
-    modified_framed = frame_payload(modified_envelope_bytes)
+    # If the original payload was encrypted,
+    # encrypt the modified signed envelope again.
+    if was_encrypted:
+        modified_envelope_bytes = (
+            protect_signed_envelope(
+                modified_signed_envelope,
+                start_secret,
+                media_id,
+                "image",
+            )
+        )
+
+    else:
+        modified_envelope_bytes = (
+            modified_signed_envelope
+        )
+
+    modified_framed = frame_payload(
+        modified_envelope_bytes
+    )
     if len(modified_framed) != len(framed):
         raise ValueError("Payload corruption changed framed length")
 

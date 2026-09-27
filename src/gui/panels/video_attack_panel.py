@@ -213,20 +213,99 @@ class VideoAttackPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
         output_dir = stego.parent / f"{stego.stem}_attacks"
         creds = {"lsb_depth": depth, "start_secret": secret, "media_id": media_id}
 
-        def work() -> tuple[list[AttackSimulationResult], Verdict, list[Image.Image | None]]:
-            output_dir.mkdir(exist_ok=True)
+        def work() -> tuple[
+            list[AttackSimulationResult],
+            Verdict,
+            list[Image.Image | None],
+        ]:
+            # ---------------------------------
+            # Verify the genuine stego first
+            # ---------------------------------
+
+            genuine = video_workflow.decode_video(
+                stego,
+                depth,
+                secret,
+                media_id,
+                public_key_pem,
+            ).verdict
+
+            if genuine != Verdict.AUTHENTIC:
+                raise ValueError(
+                    (
+                        "Cannot run attacks: the original "
+                        f"stego file verifies as {genuine}. "
+                        "Check the media ID, LSB depth, "
+                        "secret and public key first."
+                    )
+                )
+
+            # ---------------------------------
+            # Original is valid, run attacks
+            # ---------------------------------
+
+            output_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
             results = [
-                simulate_video_frame_edit(stego, output_dir / "1_frame_edit.mp4", public_key_pem=public_key_pem, **creds),
-                simulate_video_audio_edit(stego, output_dir / "2_audio_edit.mp4", public_key_pem=public_key_pem, **creds),
-                simulate_video_extra_track(stego, output_dir / "3_extra_track.mp4", public_key_pem=public_key_pem, **creds),
-                simulate_video_reexport(stego, output_dir / "4_reexported.mp4", public_key_pem=public_key_pem, **creds),
-                simulate_video_wrong_key(stego, **creds),
-                simulate_video_wrong_start_location(stego, public_key_pem=public_key_pem, **creds),
+                simulate_video_frame_edit(
+                    stego,
+                    output_dir / "1_frame_edit.mp4",
+                    public_key_pem=public_key_pem,
+                    **creds,
+                ),
+
+                simulate_video_audio_edit(
+                    stego,
+                    output_dir / "2_audio_edit.mp4",
+                    public_key_pem=public_key_pem,
+                    **creds,
+                ),
+
+                simulate_video_extra_track(
+                    stego,
+                    output_dir / "3_extra_track.mp4",
+                    public_key_pem=public_key_pem,
+                    **creds,
+                ),
+
+                simulate_video_reexport(
+                    stego,
+                    output_dir / "4_reexported.mp4",
+                    public_key_pem=public_key_pem,
+                    **creds,
+                ),
+
+                simulate_video_wrong_key(
+                    stego,
+                    **creds,
+                ),
+
+                simulate_video_wrong_start_location(
+                    stego,
+                    public_key_pem=public_key_pem,
+                    **creds,
+                ),
             ]
-            # The genuine card's verdict is measured, not assumed: verify the untouched stego too.
-            genuine = video_workflow.decode_video(stego, depth, secret, media_id, public_key_pem).verdict
-            videos = [stego if name is None else output_dir / name for _, _, name in _GALLERY]
-            return results, genuine, [_thumbnail_or_none(video) for video in videos]
+
+            videos = [
+                stego if name is None
+                else output_dir / name
+                for _, _, name in _GALLERY
+            ]
+
+            thumbnails = [
+                _thumbnail_or_none(video)
+                for video in videos
+            ]
+
+            return (
+                results,
+                genuine,
+                thumbnails,
+            )
 
         self.output_dir = output_dir
         self.run_button.configure(state="disabled", text="Running attacks…")

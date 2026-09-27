@@ -20,7 +20,15 @@ from crypto_payload import CryptoPayloadError, Verdict
 from .. import theme
 from ..components import labeled_file_picker
 
-_EXPECTED_FAILURES = (CryptoPayloadError, ValueError, OSError)
+from audio_decoder import decode_audio_file
+from audio_stego.common import AudioStegoError
+
+_EXPECTED_FAILURES = (
+    CryptoPayloadError,
+    AudioStegoError,
+    ValueError,
+    OSError,
+)
 
 _ATTACKS = ["Tampering", "Wrong-Key Verification", "Payload Corruption", "Wrong Start-Location"]
 
@@ -28,8 +36,8 @@ _ATTACKS = ["Tampering", "Wrong-Key Verification", "Payload Corruption", "Wrong 
 def _normalize_public_key_pem(text: str) -> bytes:
     text = text.strip()
     if "BEGIN PUBLIC KEY" in text:
-        return text.encode("ascii")
-    return f"-----BEGIN PUBLIC KEY-----\n{text}\n-----END PUBLIC KEY-----\n".encode("ascii")
+        return text.encode("utf-8")
+    return f"-----BEGIN PUBLIC KEY-----\n{text}\n-----END PUBLIC KEY-----\n".encode("utf-8")
 
 
 class AudioAttackPanel(ctk.CTkFrame): 
@@ -129,7 +137,34 @@ class AudioAttackPanel(ctk.CTkFrame):
             return
         public_key_pem = _normalize_public_key_pem(public_key_text)
         depth = int(self.lsb_depth_selector.get())
+        try:
+            baseline = decode_audio_file(
+                self.stego_path,
+                lsb_depth=depth,
+                start_secret=secret,
+                media_id=media_id,
+                public_key_pem=public_key_pem,
+            )
 
+            if baseline.verdict != Verdict.AUTHENTIC:
+                self.set_status(
+                    (
+                        "Cannot run attacks: the original "
+                        f"stego file verifies as "
+                        f"{baseline.verdict}. "
+                        "Check the media ID, LSB depth, "
+                        "secret and public key first."
+                    ),
+                    error=True,
+                )
+                return
+
+        except _EXPECTED_FAILURES as exc:
+            self.set_status(
+                f"Could not verify original stego file: {exc}",
+                error=True,
+            )
+            return
         output_dir = Path(tempfile.gettempdir()) / "attack_sim_outputs"
 
         try:

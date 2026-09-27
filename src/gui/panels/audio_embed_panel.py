@@ -335,6 +335,24 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
             if not stego_path:
                 return
 
+            output_path = Path(
+                stego_path
+            )
+
+            if (
+                output_path.resolve()
+                == self.cover_path.resolve()
+            ):
+                self.set_status(
+                    (
+                        "Choose a different output file; "
+                        "the stego audio must not overwrite "
+                        "the cover."
+                    ),
+                    error=True,
+                )
+                return
+
             result = audio_workflow.encode_audio(
                 self.cover_path,
                 stego_path,
@@ -343,7 +361,7 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
                 secret,
                 depth,
                 note=note,
-                encrypt_payload=self.encrypt_payload_var.get(),
+                encrypt_payload=(self.encrypt_payload_var.get()),
             )
         except _EXPECTED_FAILURES as exc:
             self.set_status(f"Encoding failed: {exc}", error=True)

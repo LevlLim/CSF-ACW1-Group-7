@@ -28,8 +28,8 @@ def _normalize_public_key_pem(text: str) -> bytes:
     """
     text = text.strip()
     if "BEGIN PUBLIC KEY" in text:
-        return text.encode("ascii")
-    return f"-----BEGIN PUBLIC KEY-----\n{text}\n-----END PUBLIC KEY-----\n".encode("ascii")
+        return text.encode("utf-8")
+    return f"-----BEGIN PUBLIC KEY-----\n{text}\n-----END PUBLIC KEY-----\n".encode("utf-8")
 
 
 class AudioVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships without type stubs

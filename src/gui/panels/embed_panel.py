@@ -366,9 +366,29 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
             if not stego_path:
                 return
 
-            output_path = Path(stego_path)
+            output_path = Path(
+                stego_path
+            )
+
             if output_path.suffix.lower() != ".png":
-                output_path = output_path.with_suffix(".png")
+                output_path = output_path.with_suffix(
+                    ".png"
+                )
+
+            if (
+                output_path.resolve()
+                == self.cover_path.resolve()
+            ):
+                self.set_status(
+                    (
+                        "Choose a different output file; "
+                        "the stego image must not overwrite "
+                        "the cover."
+                    ),
+                    error=True,
+                )
+                return
+
             result = image_workflow.encode_image(
                 self.cover_path,
                 output_path,
