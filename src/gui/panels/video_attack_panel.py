@@ -345,6 +345,14 @@ class VideoAttackPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
 
     def on_run_failed(self, error: Exception) -> None:
         self.run_button.configure(state="normal", text="Run All Attacks")
+        # Clear an earlier run's "Defended" results so a failed run can't look like a pass.
+        for label in self.result_values.values():
+            label.configure(text="–", text_color=theme.NORMAL_TEXT_COLOR)
+        for image, verdict_label, play_button in self.gallery_cards:
+            _clear_image(image, "(run the attacks)")
+            verdict_label.configure(text="–", text_color=theme.NORMAL_TEXT_COLOR)
+            play_button.configure(state="disabled")
+        self.open_folder_button.configure(state="disabled")
         self.set_status(f"Attack simulation failed: {error}", error=True)
 
     def _attacked_path(self, name: str) -> Path | None:

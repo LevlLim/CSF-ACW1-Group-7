@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 from PIL import Image
@@ -215,8 +215,11 @@ class VideoEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
             self.cover_info = None
             self.open_cover_button.configure(state="disabled")
             _clear_image(self.cover_thumbnail, "(no video)")
+            for value in (self.duration_value, self.audio_value, self.streams_value):
+                value.configure(text="–")
             self.set_status(f"Cannot use this video: {exc}", error=True)
             self.refresh_capacity()
+            messagebox.showerror("Unsupported video", f"Cannot use this video:\n\n{exc}")
             return False
 
         self.cover_path = path
@@ -396,6 +399,14 @@ class VideoEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
 
     def on_encode_failed(self, error: Exception) -> None:
         self.encode_button.configure(state="normal", text="Embed & Sign")
+        # Clear any earlier successful result so a failure never looks like a success.
+        self.stego_path = None
+        _clear_image(self.stego_thumbnail, "(encode first)")
+        self.open_stego_button.configure(state="disabled")
+        _clear_image(self.lsb_change_preview, "(generated after embedding)")
+        _clear_image(self.density_preview, "(generated after embedding)")
+        for value in self.embed_result_values.values():
+            value.configure(text="–")
         self.set_status(f"Encoding failed: {error}", error=True)
 
     def set_status(self, text: str, error: bool = False) -> None:
@@ -412,4 +423,8 @@ def _show_image(label: ctk.CTkLabel, image: Image.Image, size: tuple[int, int]) 
 
 def _clear_image(label: ctk.CTkLabel, placeholder: str) -> None:
     label.configure(image=None, text=placeholder)
+    # customtkinter leaves the old picture attached to its inner Tk label when given
+    # image=None; once that picture is freed, the next thumbnail update crashes with
+    # 'image "pyimageN" doesn't exist'. Detach it explicitly.
+    label._label.configure(image="")
     label.image = None

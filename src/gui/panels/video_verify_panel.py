@@ -183,6 +183,11 @@ class VideoVerifyPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
     def on_verify_failed(self, error: Exception) -> None:
         self.verify_button.configure(state="normal", text="Extract & Verify")
         theme.set_verdict_banner(self.verdict_frame, self.verdict_label, f"✕  {Verdict.CANNOT_VERIFY}", "error")
+        # Clear an earlier run's message and results so they can't be mistaken for this one.
+        self.message_display.configure(text="–")
+        for value in self.result_values.values():
+            value.configure(text="–")
+        self.result_values["Details"].configure(text=str(error))
         self.set_status(f"Verification failed: {error}", error=True)
 
     def show_result(self, result: VideoDecodeResult) -> None:
