@@ -36,17 +36,22 @@ def simulate_video_frame_edit(
     stego_path: str | Path, output_path: str | Path, *,
     lsb_depth: int, start_secret: bytes, media_id: str, public_key_pem: bytes,
 ) -> AttackSimulationResult:
-    """Deepfake-style: change the picture but keep the original (payload-carrying) audio."""
+    """Subtle frame edit: a tiny change to the picture, original (payload-carrying) audio kept.
+
+    Deliberately hard to spot by eye: a small yellow square for the first second only.
+    Detection doesn't depend on how visible an edit is; any change to the picture
+    track changes its SHA-256, so the fingerprint check still fails.
+    """
     _run_ffmpeg([
         "-i", _safe_path(stego_path),
-        "-vf", f"{_EVEN_SIZE},hflip,drawbox=x=iw/4:y=ih/4:w=iw/2:h=ih/2:color=black:t=fill",
+        "-vf", f"{_EVEN_SIZE},drawbox=x=iw*2/3:y=ih/3:w=10:h=10:color=yellow:t=fill:enable='lt(t,1)'",
         *_FAST_H264,
         "-c:a", "copy",
         "-f", "mp4", _safe_path(output_path),
     ])
     return _verify(
-        "Frame edit (deepfake-style)", output_path, lsb_depth, start_secret, media_id, public_key_pem,
-        "Mirrored the picture and blacked out its centre; the original stego audio was kept bit-for-bit.",
+        "Frame edit (subtle)", output_path, lsb_depth, start_secret, media_id, public_key_pem,
+        "Added a small 10x10 yellow square for the first second; the original stego audio was kept bit-for-bit.",
     )
 
 

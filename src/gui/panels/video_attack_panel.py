@@ -42,7 +42,7 @@ _GALLERY_COLUMNS = 3
 # Attacked entries are in the same order as the first four attacks in _ATTACKS.
 _GALLERY = [
     ("Genuine stego", "Untouched protected video", None),
-    ("Frame edit", "Picture changed, original audio kept", "1_frame_edit.mp4"),
+    ("Frame edit", "Tiny yellow square for 1 s, audio kept", "1_frame_edit.mp4"),
     ("Audio edit", "0.1 s of sound replaced", "2_audio_edit.mp4"),
     ("Extra audio track", "Fake narration track added", "3_extra_track.mp4"),
     ("Edit + re-export", "Trimmed 1 s and re-compressed", "4_reexported.mp4"),
@@ -50,7 +50,7 @@ _GALLERY = [
 
 # Row label -> what a real attacker would be doing.
 _ATTACKS = [
-    "Frame edit (deepfake-style)",
+    "Frame edit (subtle)",
     "Audio edit (dubbed words)",
     "Extra audio track (fake narration)",
     "Edit + re-export (trim 1 s)",
@@ -83,7 +83,7 @@ class VideoAttackPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter shi
         row = 0
         theme.panel_header(
             content, 3, "Video Attack Simulation",
-            "Deepfake-style frame edit, dubbed audio, fake track, re-export, impersonator, guessed secret",
+            "Subtle frame edit, dubbed audio, fake track, re-export, impersonator, guessed secret",
         ).grid(row=row, column=0, sticky="w", pady=(0, 10))
         row += 1
 
