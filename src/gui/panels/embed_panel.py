@@ -120,6 +120,11 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
         self.message_box.grid(row=1, column=1, sticky="ew", padx=(6, 0), pady=6)
         self.message_box.bind("<KeyRelease>", lambda _event: self.on_message_changed())
 
+        self.load_message_button = ctk.CTkButton(
+            master, text="Load from .txt", width=100, command=self.on_load_message_file
+        )
+        self.load_message_button.grid(row=1, column=2, sticky="n", padx=(6, 0), pady=6)
+
         ctk.CTkLabel(master, text="Message SHA-256 (before embedding)").grid(row=2, column=0, sticky="nw", pady=6)
         self.message_hash_value = ctk.CTkLabel(
             master, text=message_hash_hex(""), anchor="w", justify="left", wraplength=430, font=theme.mono_font(11)
@@ -511,3 +516,24 @@ class EmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ships wit
 
     def set_status(self, text: str, error: bool = False) -> None:
         self.status_label.configure(text=text, text_color=(theme.ERROR_COLOR if error else theme.NORMAL_TEXT_COLOR))
+
+    def on_load_message_file(self) -> None:
+        file_path = filedialog.askopenfilename(
+            title="Load message from text file",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if not file_path:
+            return
+        try:
+            text = Path(file_path).read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            self.set_status("Could not load file: not valid UTF-8 text.", error=True)
+            return
+        except OSError as exc:
+            self.set_status(f"Could not load file: {exc}", error=True)
+            return
+
+        self.message_box.delete("1.0", "end")
+        self.message_box.insert("1.0", text)
+        self.on_message_changed()
+        self.set_status(f"Loaded message from {Path(file_path).name}.")

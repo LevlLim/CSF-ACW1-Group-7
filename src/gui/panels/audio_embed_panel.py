@@ -138,6 +138,11 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         self.message_box.grid(row=1, column=1, sticky="ew", padx=(6, 0), pady=6)
         self.message_box.bind("<KeyRelease>", lambda _event: self.refresh_capacity())
 
+        self.load_message_button = ctk.CTkButton(
+            master, text="Load from .txt", width=100, command=self.on_load_message_file
+        )
+        self.load_message_button.grid(row=1, column=2, sticky="n", padx=(6, 0), pady=6)
+
         ctk.CTkLabel(master, text="LSB depth (1-8)").grid(row=2, column=0, sticky="w", pady=6)
         self.lsb_depth_selector = ctk.CTkSegmentedButton(
             master, values=[str(i) for i in range(1, 9)], command=lambda _value: self.refresh_capacity()
@@ -171,6 +176,27 @@ class AudioEmbedPanel(ctk.CTkFrame):  # type: ignore[misc]  # customtkinter ship
         theme.style_textbox_selection(self.public_key_box)
         self.public_key_box.grid(row=7, column=0, columnspan=2, sticky="ew")
         self.public_key_box.configure(state="disabled")
+
+    def on_load_message_file(self) -> None:
+        file_path = filedialog.askopenfilename(
+            title="Load message from text file",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if not file_path:
+            return
+        try:
+            text = Path(file_path).read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            self.set_status("Could not load file: not valid UTF-8 text.", error=True)
+            return
+        except OSError as exc:
+            self.set_status(f"Could not load file: {exc}", error=True)
+            return
+
+        self.message_box.delete("1.0", "end")
+        self.message_box.insert("1.0", text)
+        self.refresh_capacity()
+        self.set_status(f"Loaded message from {Path(file_path).name}.")
 
     def build_diagnostics(self, master: ctk.CTkFrame, row: int) -> None:
         theme.subheading(master, "WAV Stego Diagnostics").grid(row=row, column=0, sticky="w", pady=(0, 4))
