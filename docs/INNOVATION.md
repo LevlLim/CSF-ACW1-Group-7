@@ -30,3 +30,22 @@ both encrypted and earlier signed-only envelopes. This provides confidentiality
 and authenticated encryption for the custom-payload case. A weak shared secret
 still permits guessing attacks, so the demo must use a strong secret and explain
 that production deployment would use a password KDF or managed key.
+
+**Video cover object (optional challenge):**
+
+**What:** MP4 video as a third cover object. The signed payload is hidden in
+the video's audio track using the team's audio LSB code, while the picture is
+copied without re-encoding. The audio is saved as lossless FLAC so the hidden
+bits survive.
+
+**Why it's useful:** one SHA-256 fingerprint covers both the picture (its
+stream hash) and the audio, so a swapped picture with the original audio kept
+is still detected, which an audio-only check would miss. The decoder also
+checks the track layout and the signed file details, and the encoder verifies
+its own output before saving. Six attack simulations confirm each check.
+
+**Limitations:**
+- The video must have an audio track, and clips are limited to 60 seconds.
+- Any lossy re-export (editing apps, social media) destroys the payload.
+- The stego file is larger because the audio is stored as FLAC.
+- AES encryption is not offered for video.
