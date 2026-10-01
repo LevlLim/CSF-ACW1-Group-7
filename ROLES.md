@@ -19,7 +19,7 @@ Person 3 — Audio Encoder
 Person 4 — Audio Decoder & Verification
 - FR8 (extraction from stego audio), FR9 (hash recheck for audio)
 - Recover start location on decode side for audio, explain method
-- Build audio positive + negative test cases (tampered sample, wrong start location, payload missing)
+- Build audio positive + negative test cases (wrong public key, wrong start location, payload missing, capacity failure)
 - Verdict output for audio cases (FR10)
 
 Person 5 — Crypto & Payload Core (shared library used by both P1–P4)

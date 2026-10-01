@@ -1,0 +1,96 @@
+Sample Verification Instructions
+
+All files are in the "Sample Files" folder. The public keys below are raw
+Base64 SubjectPublicKeyInfo values accepted by the GUI. These are disposable
+demonstration credentials; no private signing keys are included.
+
+
+For Image Verification
+
+Load the sample stego file: image_encrypted.png
+Enter:
+Media ID: img-20261001T133554Z
+LSB Depth: 4
+Start Location Secret: imagedemo
+Public Key: MCowBQYDK2VwAyEAAuJeRNLRCDQJ4ayNJQAyGa7NELAgVbHdnRu6FQmpz28=
+Click Extract and Verify
+Expected result: Authentic
+Expected decoded message: Hello, this is encryption of image original
+
+Load the sample stego file: image_tampered.png
+Enter:
+Media ID: img-20261001T133554Z
+LSB Depth: 4
+Start Location Secret: imagedemo
+Public Key: MCowBQYDK2VwAyEAAuJeRNLRCDQJ4ayNJQAyGa7NELAgVbHdnRu6FQmpz28=
+Click Extract and Verify
+Expected result: Tampered
+
+
+For Audio Verification
+
+Load the sample stego file: wav_encrypted.wav
+Enter:
+Media ID: audio-20261001T132352Z
+LSB Depth: 2
+Start Location Secret: audiodemo
+Public Key: MCowBQYDK2VwAyEAK/m/SVvOWaE8WrdUNTXSZsCOWNPYmcv4qa8isZJMVnI=
+Click Extract and Verify
+Expected result: Authentic
+Expected decoded message: Hello, this is encrypted audio
+
+Load the sample stego file: flac_encrypted.flac
+Enter:
+Media ID: audio-20261001T132352Z
+LSB Depth: 2
+Start Location Secret: audiodemo
+Public Key: MCowBQYDK2VwAyEAK/m/SVvOWaE8WrdUNTXSZsCOWNPYmcv4qa8isZJMVnI=
+Click Extract and Verify
+Expected result: Authentic
+Expected decoded message: Hello, this is encrypted audio for flac
+
+
+For Video Verification
+
+Use these settings for every video decoder case:
+Media ID: video-20261001T141529Z
+LSB Depth: 7
+Start Location Secret: test
+Public Key: MCowBQYDK2VwAyEABCO/a/n+qgHdsu7eu5OPpzQqlT4YOB/2h0OGMMBUkFk=
+
+Load each file and click Extract and Verify:
+Video_Cover.mp4: Payload Missing (original cover; no hidden payload)
+Video_Stego.mp4: Authentic
+Tampered_frame_edit.mp4: Tampered
+Tampered_audio_edit.mp4: Tampered
+Tampered_extra_track.mp4: Tampered
+reexported.mp4: Payload Missing
+
+Encoder validation:
+Load "without audio.mp4" as a video cover.
+Expected result: Rejected because the video has no audio track.
+
+The complete PEM public key and the same result table are also stored in
+"Sample Files/public_key.txt".
+
+
+Note: The current image and audio files named "*_encrypted" contain signed
+payloads but were created without the optional AES-256-GCM checkbox enabled.
+The GUI therefore correctly displays "Signed only" for Payload protection.
+This note applies to those reusable files in "Sample Files"; the separate
+test-evidence screenshots include runs where AES-256-GCM was enabled.
+
+
+Capacity Failure Checks
+
+Image:
+1. Load image_toosmall.png as the cover image.
+2. Select 1-bit LSB and enter the large Project Overview paragraph.
+3. Generate a signing keypair and select a start pixel.
+Expected result: Status shows "Too large" and embedding is blocked.
+
+Audio:
+1. Load wav_fail_test_case.wav as the cover audio.
+2. Select 1-bit LSB and enter or load at least 12,000 ASCII characters.
+3. Generate a signing keypair.
+Expected result: Status shows "Too large" and embedding is blocked.

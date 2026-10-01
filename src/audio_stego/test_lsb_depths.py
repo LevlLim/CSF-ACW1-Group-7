@@ -7,21 +7,28 @@ from audio_stego.common import (
 )
 
 import hashlib
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 private_key, public_key = generate_ed25519_keypair()
 
 start_secret = b"group7-test-secret"
 
+_repo_root = Path(__file__).resolve().parents[2]
+_temp_dir = TemporaryDirectory()
+input_path = _repo_root / "Sample Files" / "wav_orig.wav"
+output_dir = Path(_temp_dir.name)
+
 original_wav = load_wav_pcm(
-    "samples/test_audio.wav"
+    input_path
 )
 
 
 for depth in range(1, 9):
 
     output_path = (
-        f"samples/stego_audio_{depth}bit.wav"
+        output_dir / f"stego_audio_{depth}bit.wav"
     )
 
     print(
@@ -29,7 +36,7 @@ for depth in range(1, 9):
     )
 
     result = encode_audio_file(
-        input_path="samples/test_audio.wav",
+        input_path=input_path,
         output_path=output_path,
         media_id="AUDIO001",
         private_key_pem=private_key,
@@ -79,3 +86,5 @@ for depth in range(1, 9):
         "Stable hash match:",
         original_hash == stego_hash
     )
+
+_temp_dir.cleanup()

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from audio_stego.common import load_wav_pcm
 from audio_stego.common import (
     load_wav_pcm,
@@ -6,7 +8,8 @@ from audio_stego.common import (
     carrier_count_for_bytes,
 )
 
-wav = load_wav_pcm("test_audio.wav")
+repo_root = Path(__file__).resolve().parents[2]
+wav = load_wav_pcm(repo_root / "Sample Files" / "wav_orig.wav")
 
 # print("Channels:", wav.channels)
 # print("Sample width:", wav.sample_width)

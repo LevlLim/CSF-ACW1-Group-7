@@ -1,0 +1,26 @@
+# Video sample verification (optional challenge): Toh Wen Qian
+
+## Verification details
+- Media ID: video-20261001T141529Z
+- LSB depth: 7
+- Start-location secret: test
+- Public key: 
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEABCO/a/n+qgHdsu7eu5OPpzQqlT4YOB/2h0OGMMBUkFk=
+-----END PUBLIC KEY-----
+
+
+Open the app -> Video tab -> Video Decoder, select a file, enter the details
+above, then click Extract and Verify.
+
+## Expected results
+| File                      | Expected verdict |
+|---------------------------|------------------|
+| Video_Cover.mp4           | Payload Missing (original, nothing hidden) |
+| Video_Stego.mp4           | Authentic |
+| Tampered_frame_edit.mp4   | Tampered |
+| Tampered_audio_edit.mp4   | Tampered |
+| Tampered_extra_track.mp4  | Tampered |
+| reexported.mp4            | Payload Missing |
+| without audio.mp4         | Rejected on selection: no audio track |
+

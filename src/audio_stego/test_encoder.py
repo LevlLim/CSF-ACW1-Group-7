@@ -1,3 +1,6 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 from crypto_payload import (
     generate_ed25519_keypair,
 )
@@ -5,6 +8,12 @@ from crypto_payload import (
 from audio_stego import (
     encode_audio_file,
 )
+
+
+_repo_root = Path(__file__).resolve().parents[2]
+_temp_dir = TemporaryDirectory()
+input_path = _repo_root / "Sample Files" / "wav_orig.wav"
+output_path = Path(_temp_dir.name) / "stego_audio.wav"
 
 
 # --------------------------------
@@ -30,8 +39,8 @@ start_secret = (
 # --------------------------------
 
 result = encode_audio_file(
-    input_path="samples/test_audio.wav",
-    output_path="samples/stego_audio.wav",
+    input_path=input_path,
+    output_path=output_path,
     media_id="AUDIO001",
     private_key_pem=private_key,
     start_secret=start_secret,
@@ -71,11 +80,12 @@ print(
     result.capacity
 )
 
-from audio_stego.common import load_wav_pcm
+from audio_stego.common import carrier_count_for_bytes, load_wav_pcm
+from audio_stego.locations import header_length_bytes, resolve_header_start_sample
 
 
 stego_wav = load_wav_pcm(
-    "samples/stego_audio.wav"
+    output_path
 )
 
 print("\nStego WAV information")
@@ -86,11 +96,11 @@ print("Frame count:", stego_wav.frame_count)
 print("Number of samples:", len(stego_wav.samples))
 
 original_wav = load_wav_pcm(
-    "samples/test_audio.wav"
+    input_path
 )
 
 stego_wav = load_wav_pcm(
-    "samples/stego_audio.wav"
+    output_path
 )
 
 
@@ -119,28 +129,26 @@ if changed_indices:
 
 start = result.start_location
 end = start + result.carriers_used
-
-
-before_same = (
-    original_wav.samples[:start]
-    == stego_wav.samples[:start]
+header_start = resolve_header_start_sample(
+    result.capacity, result.lsb_depth, start_secret, "AUDIO001"
+)
+header_end = header_start + carrier_count_for_bytes(
+    header_length_bytes(), result.lsb_depth
 )
 
-after_same = (
-    original_wav.samples[end:]
-    == stego_wav.samples[end:]
+outside_same = all(
+    original == stego
+    for index, (original, stego) in enumerate(
+        zip(original_wav.samples, stego_wav.samples)
+    )
+    if not (header_start <= index < header_end or start <= index < end)
 )
 
 
 print("\nOutside embedding region check")
 print(
-    "Before payload unchanged:",
-    before_same
-)
-
-print(
-    "After payload unchanged:",
-    after_same
+    "Outside locator and payload unchanged:",
+    outside_same
 )
 
 import hashlib
@@ -186,3 +194,5 @@ print(
     "Hashes match:",
     original_hash == stego_hash
 )
+
+_temp_dir.cleanup()
